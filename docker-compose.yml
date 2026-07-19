@@ -1,0 +1,18 @@
+# Example: run focull next to an existing Immich instance.
+services:
+  focull:
+    build: .
+    restart: unless-stopped
+    ports:
+      - '3000:3000'
+    environment:
+      # Point at your Immich server (the same URL the Immich web app uses).
+      IMMICH_URL: http://immich-server:2283
+      # Optional: skip the login screen entirely (single-user setups).
+      # IMMICH_API_KEY: your-immich-api-key
+    # If Immich runs in another compose project, join its network instead:
+    # networks: [immich]
+# networks:
+#   immich:
+#     external: true
+#     name: immich_default
