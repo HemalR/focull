@@ -34,7 +34,7 @@
 	const stacks = $derived(plan.stacks.length + plan.reels.length);
 
 	const sentence = $derived.by(() => {
-		const { rejectAction, tagName } = session.settings;
+		const { rejectAction, tagName, reviewedTagName } = session.settings;
 		const parts: string[] = [];
 		if (culled.length > 0) {
 			if (rejectAction === 'tag') parts.push(`tag ${plural(culled.length, 'culled asset')} #${tagName}`);
@@ -43,6 +43,9 @@
 		}
 		if (stacks > 0) parts.push(`stack culled shots behind their winners (${plural(stacks, 'stack')})`);
 		if (plan.reels.length > 0) parts.push(`stitch ${plural(plan.reels.length, 'reel')} (${plural(reelClips, 'clip')})`);
+		if (plan.reviewedIds.length > 0) {
+			parts.push(`mark all ${plural(plan.reviewedIds.length, 'processed asset')} #${reviewedTagName} so future sessions skip them`);
+		}
 		if (parts.length === 0) return 'Nothing to change in Immich — every asset survived.';
 		const tail = rejectAction === 'trash' ? '' : ' Nothing is deleted.';
 		return `Commit will ${parts.join(', ')}.${tail}`;

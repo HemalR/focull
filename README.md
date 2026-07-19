@@ -8,7 +8,8 @@ focull detects bursts and event clusters in your library (time-window grouping),
 
 Nothing touches your library until you review and **commit**, at which point focull writes the results back to Immich:
 
-- Culled assets are **tagged `foculled`** (default; archive or trash are opt-in settings) and **stacked behind the winner**, so your timeline instantly shows only keepers while every original survives.
+- Culled assets are **tagged `focull/culled`** (default; archive or trash are opt-in settings) and **stacked behind the winner**, so your timeline instantly shows only keepers while every original survives.
+- Everything a committed session touched — winners included — is **tagged `focull/reviewed`**, so future sessions skip photos you've already judged. Untag an asset in Immich to send it back into the pool.
 - The winner becomes the Immich **stack primary**.
 - For video clusters you can mark clips for a **reel**: focull losslessly concatenates them with ffmpeg (stream copy — no re-encode, no quality loss), uploads the stitched video to Immich, and stacks the source clips beneath it. Mixed-format clips are refused rather than silently transcoded.
 
@@ -64,7 +65,7 @@ IMMICH_URL=http://your-immich:2283 npm run dev
 
 ## Sessions
 
-Start from **new since your last cull** (focull remembers a high-water mark), an **album**, or a **date range**. Burst detection uses an 8-second gap for photos and a 10-minute gap between clips for videos — both configurable in settings (`,`). Progress is saved locally as you go; an interrupted session offers to resume.
+Start from **unreviewed** (everything you've never judged — the reviewed tag is the source of truth, so this works across browsers and devices), **new since your last cull** (a faster date-based path), an **album**, or a **date range**. Burst detection uses an 8-second gap for photos and a 10-minute gap between clips for videos — both configurable in settings (`,`). Progress is saved locally as you go; an interrupted session offers to resume.
 
 ## Safety model
 

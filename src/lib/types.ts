@@ -22,7 +22,10 @@ export type RejectAction = 'tag' | 'archive' | 'trash';
 
 export interface Settings {
 	rejectAction: RejectAction;
+	/** Tag applied to culled assets (when rejectAction is 'tag'). */
 	tagName: string;
+	/** Tag applied to every asset a committed session processed — the "already judged" marker. */
+	reviewedTagName: string;
 	/** Max gap between consecutive photos to count as one burst. */
 	photoWindowSeconds: number;
 	/** Max gap between end of one clip and start of the next to count as one event. */
@@ -31,12 +34,14 @@ export interface Settings {
 
 export const DEFAULT_SETTINGS: Settings = {
 	rejectAction: 'tag',
-	tagName: 'foculled',
+	tagName: 'focull/culled',
+	reviewedTagName: 'focull/reviewed',
 	photoWindowSeconds: 8,
 	videoWindowSeconds: 600
 };
 
 export type SessionSource =
+	| { kind: 'unreviewed' }
 	| { kind: 'new'; takenAfter: string }
 	| { kind: 'album'; albumId: string; albumName: string }
 	| { kind: 'range'; takenAfter: string; takenBefore: string };

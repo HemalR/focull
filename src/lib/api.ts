@@ -1,6 +1,7 @@
 import {
 	AssetOrder,
 	AssetVisibility,
+	getAllTags,
 	searchAssets,
 	type AssetResponseDto,
 	type MetadataSearchDto
@@ -57,7 +58,35 @@ export const checkStitch = async (): Promise<boolean> => {
 	}
 };
 
-/** Pull every asset matching the session source, then drop trashed / stacked / already-culled ones. */
+async function searchPaged(
+	dto: MetadataSearchDto,
+	onPage?: (items: AssetResponseDto[]) => void
+): Promise<AssetResponseDto[]> {
+	const all: AssetResponseDto[] = [];
+	let page: number | null = 1;
+	while (page !== null) {
+		const result = await searchAssets({ metadataSearchDto: { ...dto, page } });
+		all.push(...result.assets.items);
+		onPage?.(result.assets.items);
+		const next: string | null = result.assets.nextPage;
+		page = next === null ? null : Number(next);
+	}
+	return all;
+}
+
+/**
+ * IDs of every asset carrying one of the given tag paths. Immich search can filter
+ * FOR a tag but not against one, so exclusion means collecting these up front.
+ */
+async function fetchTaggedAssetIds(tagPaths: string[]): Promise<Set<string>> {
+	const tags = await getAllTags();
+	const tagIds = tags.filter((t) => tagPaths.includes(t.value)).map((t) => t.id);
+	if (tagIds.length === 0) return new Set();
+	const tagged = await searchPaged({ tagIds, size: 1000, withExif: false });
+	return new Set(tagged.map((a) => a.id));
+}
+
+/** Pull every asset matching the session source, then drop trashed / stacked / already-judged ones. */
 export async function fetchSessionAssets(
 	source: SessionSource,
 	settings: Settings,
@@ -71,25 +100,13 @@ export async function fetchSessionAssets(
 		size: 1000
 	};
 	if (source.kind === 'album') base.albumIds = [source.albumId];
-	else {
+	else if (source.kind !== 'unreviewed') {
 		base.takenAfter = source.takenAfter;
 		if (source.kind === 'range') base.takenBefore = source.takenBefore;
 	}
 
-	const all: AssetResponseDto[] = [];
-	let page: number | null = 1;
-	while (page !== null) {
-		const result = await searchAssets({ metadataSearchDto: { ...base, page } });
-		all.push(...result.assets.items);
-		onProgress?.(all.length);
-		const next: string | null = result.assets.nextPage;
-		page = next === null ? null : Number(next);
-	}
-
-	return all.filter(
-		(a) =>
-			!a.isTrashed &&
-			!a.stack &&
-			!a.tags?.some((t) => t.name === settings.tagName || t.value === settings.tagName)
-	);
+	const judged = await fetchTaggedAssetIds([settings.reviewedTagName, settings.tagName]);
+	let count = 0;
+	const all = await searchPaged(base, (items) => onProgress?.((count += items.length)));
+	return all.filter((a) => !a.isTrashed && !a.stack && !judged.has(a.id));
 }

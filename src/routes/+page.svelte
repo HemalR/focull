@@ -43,6 +43,7 @@
 	let commitLog = $state<string[]>([]);
 	let commitFailed = $state(false);
 	let doneSummary = $state<Tally | null>(null);
+	let doneReviewed = $state(0);
 
 	let toast = $state<ToastData | null>(null);
 	let toastTimer: ReturnType<typeof setTimeout> | undefined;
@@ -170,6 +171,7 @@
 				localStorage.setItem('focull.lastCull', new Date(newest).toISOString());
 			}
 			doneSummary = { ...session.tally };
+			doneReviewed = plan.reviewedIds.length;
 			void clearSession();
 			phase = 'done';
 		} catch (e) {
@@ -347,6 +349,12 @@
 					<span class="k">✓ {doneSummary.kept} kept</span> ·
 					<span class="c">✕ {doneSummary.culled} culled</span> ·
 					<span class="r">◉ {doneSummary.reel} reel</span>
+				</p>
+			{/if}
+			{#if doneReviewed > 0}
+				<p class="mono muted">
+					{plural(doneReviewed, 'asset')} now carry #{session.settings.reviewedTagName} — future
+					sessions skip them
 				</p>
 			{/if}
 			<ul class="log mono">

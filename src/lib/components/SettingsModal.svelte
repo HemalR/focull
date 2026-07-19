@@ -30,10 +30,19 @@
 			<p class="warn mono">trash really moves culled assets to the Immich trash on commit.</p>
 		{/if}
 
-		<label class="row">
-			<span class="label">tag name</span>
-			<input type="text" bind:value={session.settings.tagName} onchange={save} />
-		</label>
+		<div class="pair">
+			<label class="row">
+				<span class="label">culled tag</span>
+				<input type="text" bind:value={session.settings.tagName} onchange={save} />
+			</label>
+			<label class="row">
+				<span class="label">reviewed tag</span>
+				<input type="text" bind:value={session.settings.reviewedTagName} onchange={save} />
+			</label>
+		</div>
+		<p class="muted mono note">
+			culled marks the losers; reviewed marks everything a session judged, so future sessions skip it.
+		</p>
 
 		<label class="row">
 			<span class="label">photo burst window (seconds)</span>
@@ -95,6 +104,16 @@
 		display: flex;
 		flex-direction: column;
 		gap: 5px;
+	}
+
+	.pair {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 12px;
+	}
+
+	.pair input {
+		min-width: 0;
 	}
 
 	.warn {

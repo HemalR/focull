@@ -22,15 +22,18 @@ export interface CommitPlan {
 	/** Each stack: winner first (Immich makes the first ID the primary). */
 	stacks: string[][];
 	reels: ReelPlan[];
+	/** Every asset a finished group processed — tagged as reviewed so later sessions skip them. */
+	reviewedIds: string[];
 }
 
 /** Pure translation of finished battle states into Immich writes; drives both the review screen and the commit. */
 export function buildPlan(groups: CullGroup[], states: GroupState[], _settings: Settings): CommitPlan {
-	const plan: CommitPlan = { rejectIds: [], stacks: [], reels: [] };
+	const plan: CommitPlan = { rejectIds: [], stacks: [], reels: [], reviewedIds: [] };
 
 	groups.forEach((group, i) => {
 		const state = states[i];
 		if (state.queue.length > 0) return; // group not finished — leave it untouched
+		plan.reviewedIds.push(...group.assets.map((a) => a.id));
 
 		const byFate = (fate: string) =>
 			group.assets.filter((_, ai) => state.fates[ai] === fate).map((a) => a.id);
@@ -117,6 +120,13 @@ export async function commitPlan(
 			log(`Stitch failed (${res.status}): ${await res.text()} — falling back to a plain stack`);
 			if (reel.stackWith.length >= 2) await stack(reel.stackWith, log);
 		}
+	}
+
+	// Last, so a failed commit never marks assets as reviewed prematurely.
+	if (plan.reviewedIds.length > 0) {
+		const [tag] = await upsertTags({ tagUpsertDto: { tags: [settings.reviewedTagName] } });
+		await bulkTagAssets({ tagBulkAssetsDto: { assetIds: plan.reviewedIds, tagIds: [tag.id] } });
+		log(`Marked ${plan.reviewedIds.length} assets #${settings.reviewedTagName} — future sessions skip them`);
 	}
 }
 

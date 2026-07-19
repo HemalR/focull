@@ -3,6 +3,7 @@
 	import { createHotkey } from '@tanstack/svelte-hotkeys';
 	import { logout, type AuthUser } from '$lib/api';
 	import { calendarDate, isoDaysAgo, plural } from '$lib/format';
+	import { session } from '$lib/session.svelte';
 	import type { SessionSource } from '$lib/types';
 	import SettingsModal from './SettingsModal.svelte';
 	import KeyLegend from './KeyLegend.svelte';
@@ -68,9 +69,10 @@
 	}
 
 	const closed = $derived(!settingsOpen);
-	createHotkey('1', () => onStart({ kind: 'new', takenAfter: since }), () => ({ enabled: closed }));
-	createHotkey('2', () => void openAlbums(), () => ({ enabled: closed }));
-	createHotkey('3', () => (mode = 'range'), () => ({ enabled: closed }));
+	createHotkey('1', () => onStart({ kind: 'unreviewed' }), () => ({ enabled: closed }));
+	createHotkey('2', () => onStart({ kind: 'new', takenAfter: since }), () => ({ enabled: closed }));
+	createHotkey('3', () => void openAlbums(), () => ({ enabled: closed }));
+	createHotkey('4', () => (mode = 'range'), () => ({ enabled: closed }));
 	createHotkey(',', () => (settingsOpen = true), () => ({ enabled: closed }));
 	createHotkey('Escape', () => (mode = 'none'), () => ({
 		conflictBehavior: 'allow',
@@ -105,18 +107,27 @@
 		<h1 class="label">pick a session source</h1>
 
 		<div class="sources">
+			<button type="button" class={['card', 'source']} onclick={() => onStart({ kind: 'unreviewed' })}>
+				<kbd>1</kbd>
+				<strong>Unreviewed</strong>
+				<span class="muted mono">
+					everything you've never judged — skips anything tagged
+					{session.settings.reviewedTagName} or {session.settings.tagName}
+				</span>
+			</button>
+
 			<button
 				type="button"
 				class={['card', 'source']}
 				onclick={() => onStart({ kind: 'new', takenAfter: since })}
 			>
-				<kbd>1</kbd>
+				<kbd>2</kbd>
 				<strong>New since last cull</strong>
 				<span class="muted mono">since {calendarDate(since)}{lastCull ? '' : ' (no cull yet — 30 days)'}</span>
 			</button>
 
 			<button type="button" class={['card', 'source', mode === 'album' && 'active']} onclick={openAlbums}>
-				<kbd>2</kbd>
+				<kbd>3</kbd>
 				<strong>Album</strong>
 				<span class="muted mono">battle one album</span>
 			</button>
@@ -126,7 +137,7 @@
 				class={['card', 'source', mode === 'range' && 'active']}
 				onclick={() => (mode = 'range')}
 			>
-				<kbd>3</kbd>
+				<kbd>4</kbd>
 				<strong>Date range</strong>
 				<span class="muted mono">a specific stretch of time</span>
 			</button>
@@ -183,9 +194,10 @@
 
 	<KeyLegend
 		items={[
-			{ key: '1', label: 'new since last cull', action: () => onStart({ kind: 'new', takenAfter: since }) },
-			{ key: '2', label: 'album', action: () => void openAlbums() },
-			{ key: '3', label: 'date range', action: () => (mode = 'range') },
+			{ key: '1', label: 'unreviewed', action: () => onStart({ kind: 'unreviewed' }) },
+			{ key: '2', label: 'new since last cull', action: () => onStart({ kind: 'new', takenAfter: since }) },
+			{ key: '3', label: 'album', action: () => void openAlbums() },
+			{ key: '4', label: 'date range', action: () => (mode = 'range') },
 			{ key: ',', label: 'settings', action: () => (settingsOpen = true) }
 		]}
 		notes={['nothing is deleted until you commit']}
@@ -239,7 +251,7 @@
 
 	.sources {
 		display: grid;
-		grid-template-columns: repeat(3, 1fr);
+		grid-template-columns: repeat(4, 1fr);
 		gap: 12px;
 	}
 
