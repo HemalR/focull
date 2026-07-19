@@ -1,0 +1,148 @@
+/* focull — dark-only design tokens. Culling is color-critical: chrome stays dim and neutral. */
+:root {
+	--bg: #0f1210;
+	--panel: #161a17;
+	--panel2: #1d221e;
+	--line: #2a302b;
+	--ink: #e8e6dd;
+	--mut: #8b9188;
+	--amber: #e2a03f;
+	--amber-dim: #8a6526;
+	--keep: #63ac6e;
+	--rej: #d4695a;
+	--reel: #7fa7d9;
+	--mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+
+* {
+	box-sizing: border-box;
+}
+
+html,
+body {
+	height: 100%;
+}
+
+body {
+	margin: 0;
+	overflow: hidden;
+	background: var(--bg);
+	color: var(--ink);
+	font-family: system-ui, sans-serif;
+	font-size: 14px;
+	line-height: 1.45;
+}
+
+.mono {
+	font-family: var(--mono);
+	font-size: 12px;
+}
+
+.label {
+	font-family: var(--mono);
+	font-size: 11px;
+	text-transform: uppercase;
+	letter-spacing: 0.1em;
+	color: var(--mut);
+}
+
+kbd {
+	font-family: var(--mono);
+	font-size: 11px;
+	padding: 1px 6px;
+	border-radius: 3px;
+	background: var(--panel2);
+	border: 1px solid #363d37;
+	border-bottom-width: 2px;
+	color: var(--ink);
+}
+
+button {
+	font: inherit;
+	color: inherit;
+	background: none;
+	border: none;
+	padding: 0;
+	cursor: pointer;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible {
+	outline: 2px solid var(--amber);
+	outline-offset: 1px;
+}
+
+input,
+select {
+	font: inherit;
+	color: var(--ink);
+	background: var(--panel2);
+	border: 1px solid var(--line);
+	border-radius: 4px;
+	padding: 7px 10px;
+}
+
+a {
+	color: var(--mut);
+}
+
+a:hover {
+	color: var(--ink);
+}
+
+/* Shared chrome */
+.brand {
+	font-family: var(--mono);
+	font-size: 13px;
+	font-weight: 600;
+	letter-spacing: 0.04em;
+	color: var(--ink);
+}
+
+.brand .dot {
+	color: var(--amber);
+}
+
+.card {
+	background: var(--panel);
+	border: 1px solid var(--line);
+	border-radius: 6px;
+}
+
+.btn {
+	font-family: var(--mono);
+	font-size: 12px;
+	text-transform: uppercase;
+	letter-spacing: 0.1em;
+	padding: 9px 16px;
+	border-radius: 4px;
+	border: 1px solid var(--amber-dim);
+	background: var(--panel2);
+	color: var(--amber);
+}
+
+.btn:hover {
+	border-color: var(--amber);
+}
+
+.center-screen {
+	height: 100dvh;
+	display: grid;
+	place-items: center;
+	padding: 24px;
+}
+
+.muted {
+	color: var(--mut);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation: none !important;
+		transition: none !important;
+	}
+}

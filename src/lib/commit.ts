@@ -37,11 +37,15 @@ export function buildPlan(groups: CullGroup[], states: GroupState[], _settings: 
 		const rejects = byFate('rejected');
 		plan.rejectIds.push(...rejects);
 
+		// In a culled single-asset group the "champion" is itself rejected — no winner, no stack.
+		const winnerRejected = state.fates[state.championIdx] === 'rejected';
 		const winner = group.assets[state.championIdx].id;
 		const reelSources =
 			group.kind === 'video'
 				? group.assets
-						.filter((_, ai) => state.fates[ai] === 'reel' || ai === state.championIdx)
+						.filter(
+							(_, ai) => state.fates[ai] === 'reel' || (ai === state.championIdx && !winnerRejected)
+						)
 						.map((a) => a.id)
 				: [];
 
@@ -52,7 +56,7 @@ export function buildPlan(groups: CullGroup[], states: GroupState[], _settings: 
 				stackWith: [...reelSources, ...rejects],
 				filename: `focull-${start.toISOString().slice(0, 19).replaceAll(':', '-')}.mp4`
 			});
-		} else if (rejects.length > 0) {
+		} else if (rejects.length > 0 && !winnerRejected) {
 			plan.stacks.push([winner, ...rejects]);
 		}
 	});
