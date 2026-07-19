@@ -30,6 +30,8 @@ export interface Settings {
 	photoWindowSeconds: number;
 	/** Max gap between end of one clip and start of the next to count as one event. */
 	videoWindowSeconds: number;
+	/** Magnifier loupe following the cursor over battle panes (outside Z-zoom). */
+	hoverLoupe: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -37,11 +39,20 @@ export const DEFAULT_SETTINGS: Settings = {
 	tagName: 'focull/culled',
 	reviewedTagName: 'focull/reviewed',
 	photoWindowSeconds: 8,
-	videoWindowSeconds: 600
+	videoWindowSeconds: 600,
+	hoverLoupe: true
 };
+
+/** Album assignment staged mid-battle (A key), applied at commit. On-the-spot albums have no id yet. */
+export interface StagedAlbum {
+	albumId?: string;
+	name: string;
+	assetIds: string[];
+}
 
 export type SessionSource =
 	| { kind: 'unreviewed' }
+	| { kind: 'duplicates' }
 	| { kind: 'new'; takenAfter: string }
 	| { kind: 'album'; albumId: string; albumName: string }
 	| { kind: 'range'; takenAfter: string; takenBefore: string };

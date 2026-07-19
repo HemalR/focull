@@ -5,6 +5,7 @@
 	import { prefetchImage } from '$lib/prefetch';
 	import { localDate, plural } from '$lib/format';
 	import { session } from '$lib/session.svelte';
+	import AlbumPalette from './AlbumPalette.svelte';
 	import Pane from './Pane.svelte';
 	import Carousel from './Carousel.svelte';
 	import KeyLegend, { type LegendItem } from './KeyLegend.svelte';
@@ -16,9 +17,23 @@
 		notify: (msg: string, err?: boolean) => void;
 		onGroupDone: () => void;
 		onSingleDone: () => void;
+		/** Group skipped — advance past it. */
+		onSkipped: () => void;
+		onHelp: () => void;
+		/** The album palette opened/closed — the page gates its Escape handler on this. */
+		onOverlay: (open: boolean) => void;
 	}
 
-	let { active, stitchAvailable, notify, onGroupDone, onSingleDone }: Props = $props();
+	let {
+		active,
+		stitchAvailable,
+		notify,
+		onGroupDone,
+		onSingleDone,
+		onSkipped,
+		onHelp,
+		onOverlay
+	}: Props = $props();
 
 	const group = $derived(session.group);
 	const gstate = $derived(session.current);
@@ -38,7 +53,16 @@
 	});
 
 	let zoomed = $state(false);
+	let pan = $state({ x: 0.5, y: 0.5 });
+	/** One shared sound state for both panes; default muted, sticky for the session. */
+	let muted = $state(true);
+	let paletteOpen = $state(false);
 	let recent: number[] = [];
+
+	function setPalette(open: boolean) {
+		paletteOpen = open;
+		onOverlay(open);
+	}
 
 	// New group: reset zoom and the recently-decided prefetch list.
 	$effect(() => {
@@ -58,17 +82,19 @@
 		}
 	});
 
-	function decide(action: 'defend' | 'dethrone' | 'both' | 'reel') {
+	function decide(action: 'defend' | 'dethrone' | 'both' | 'reel' | 'promoteKeep') {
 		if (!challenger || challengerIdx === undefined) return;
 		const name = challenger.originalFileName;
-		recent.push(action === 'dethrone' && gstate ? gstate.championIdx : challengerIdx);
+		const crowning = action === 'dethrone' || action === 'promoteKeep';
+		recent.push(crowning && gstate ? gstate.championIdx : challengerIdx);
 		session[action]();
 		notify(
 			{
 				defend: `${name} → cull pile`,
 				dethrone: `${name} takes the crown`,
 				both: `${name} survives`,
-				reel: `${name} → reel`
+				reel: `${name} → reel`,
+				promoteKeep: `${name} takes the crown — old champion kept`
 			}[action]
 		);
 		if (session.current?.queue.length === 0) onGroupDone();
@@ -85,32 +111,57 @@
 		notify(session.undo() ? 'undone' : 'nothing to undo');
 	}
 
-	const duel = $derived(active && !isSingle && !!challenger);
+	function skip() {
+		session.skipCurrent();
+		notify('group skipped — stays unreviewed');
+		onSkipped();
+	}
+
+	const keysActive = $derived(active && !paletteOpen);
+	const duel = $derived(keysActive && !isSingle && !!challenger);
 	createHotkey('ArrowLeft', () => decide('defend'), () => ({ enabled: duel }));
 	createHotkey('ArrowRight', () => decide('dethrone'), () => ({ enabled: duel }));
+	createHotkey('Shift+ArrowRight', () => decide('promoteKeep'), () => ({ enabled: duel }));
 	createHotkey('B', () => decide('both'), () => ({ enabled: duel }));
 	createHotkey('S', () => decide('reel'), () => ({ enabled: duel && canReel }));
-	createHotkey('Space', () => decideSingle(true), () => ({ enabled: active && isSingle }));
-	createHotkey('X', () => decideSingle(false), () => ({ enabled: active && isSingle }));
-	createHotkey('U', undo, () => ({ enabled: active }));
-	createHotkey('Z', () => (zoomed = !zoomed), () => ({ enabled: active }));
+	createHotkey('Space', () => decideSingle(true), () => ({ enabled: keysActive && isSingle }));
+	createHotkey('X', () => decideSingle(false), () => ({ enabled: keysActive && isSingle }));
+	createHotkey('U', undo, () => ({ enabled: keysActive }));
+	createHotkey('Z', () => (zoomed = !zoomed), () => ({ enabled: keysActive }));
+	createHotkey('G', skip, () => ({ enabled: keysActive }));
+	createHotkey('A', () => setPalette(true), () => ({ enabled: keysActive && !!champion }));
+	createHotkey('M', () => (muted = !muted), () => ({
+		enabled: keysActive && group?.kind === 'video'
+	}));
 
 	const legend = $derived.by((): LegendItem[] => {
+		const shared: LegendItem[] = [
+			{ key: 'A', label: 'album', action: () => setPalette(true) },
+			{ key: 'G', label: 'skip group — stays unreviewed', action: skip },
+			{ key: 'U', label: 'undo', action: undo },
+			{ key: 'Z', label: 'zoom', action: () => (zoomed = !zoomed) },
+			{ key: '?', label: 'shortcuts', action: onHelp }
+		];
+		const mute: LegendItem[] =
+			group?.kind === 'video'
+				? [{ key: 'M', label: muted ? 'unmute' : 'mute', action: () => (muted = !muted) }]
+				: [];
 		if (isSingle) {
 			return [
 				{ key: 'space', label: 'keep', action: () => decideSingle(true) },
 				{ key: 'X', label: 'cull', action: () => decideSingle(false) },
-				{ key: 'U', label: 'undo', action: undo },
-				{ key: 'Z', label: 'zoom', action: () => (zoomed = !zoomed) }
+				...mute,
+				...shared
 			];
 		}
 		return [
 			{ key: '←', label: 'champion stays', action: () => decide('defend') },
 			{ key: '→', label: 'challenger wins', action: () => decide('dethrone') },
+			{ key: '⇧→', label: 'crown, keep old champ', action: () => decide('promoteKeep') },
 			{ key: 'B', label: 'both survive', action: () => decide('both') },
 			...(canReel ? [{ key: 'S', label: 'add to reel', action: () => decide('reel') }] : []),
-			{ key: 'U', label: 'undo', action: undo },
-			{ key: 'Z', label: 'zoom', action: () => (zoomed = !zoomed) }
+			...mute,
+			...shared
 		];
 	});
 </script>
@@ -129,12 +180,28 @@
 
 	<main class={['stage', isSingle && 'single']}>
 		{#if isSingle && champion}
-			<Pane asset={champion} kind="single" {zoomed} />
+			<Pane
+				asset={champion}
+				kind="single"
+				stagedCount={session.stagedCount(champion.id)}
+				{zoomed}
+				{pan}
+				onpan={(p) => (pan = p)}
+				loupe={session.settings.hoverLoupe}
+				{muted}
+				ontogglemute={() => (muted = !muted)}
+			/>
 		{:else if champion && challenger && gstate && group}
 			<Pane
 				asset={champion}
 				kind="champion"
+				stagedCount={session.stagedCount(champion.id)}
 				{zoomed}
+				{pan}
+				onpan={(p) => (pan = p)}
+				loupe={session.settings.hoverLoupe}
+				{muted}
+				ontogglemute={() => (muted = !muted)}
 				onpick={() => decide('defend')}
 				title="champion stays (defend)"
 			/>
@@ -143,6 +210,11 @@
 				kind="challenger"
 				sub="{group.assets.length - gstate.queue.length} of {group.assets.length - 1}"
 				{zoomed}
+				{pan}
+				onpan={(p) => (pan = p)}
+				loupe={session.settings.hoverLoupe}
+				{muted}
+				ontogglemute={() => (muted = !muted)}
 				onpick={() => decide('dethrone')}
 				title="challenger wins (dethrone)"
 			/>
@@ -158,6 +230,10 @@
 		notes={['esc back to picker', 'nothing is deleted until you commit']}
 	/>
 </div>
+
+{#if paletteOpen && champion}
+	<AlbumPalette asset={champion} {notify} onClose={() => setPalette(false)} />
+{/if}
 
 <style>
 	.battle {

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { CullGroup, GroupState } from '$lib/types';
 	import { thumbnailUrl } from '$lib/immich';
+	import { thumbhashStyle } from '$lib/thumbhash';
 
 	let {
 		group,
@@ -35,11 +36,11 @@
 				title="battle this one next"
 				onclick={() => onJump(idx)}
 			>
-				<img src={thumbnailUrl(asset.id)} alt="" loading="lazy" />
+				<img src={thumbnailUrl(asset.id)} alt="" loading="lazy" style={thumbhashStyle(asset)} />
 			</button>
 		{:else}
 			<span class={['thumb', st]}>
-				<img src={thumbnailUrl(asset.id)} alt="" loading="lazy" />
+				<img src={thumbnailUrl(asset.id)} alt="" loading="lazy" style={thumbhashStyle(asset)} />
 				{#if marks[st]}<span class="mark">{marks[st]}</span>{/if}
 			</span>
 		{/if}

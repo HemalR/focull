@@ -1,7 +1,15 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { createHotkey } from '@tanstack/svelte-hotkeys';
-	import { checkStitch, fetchSessionAssets, getAuthStatus, type AuthUser } from '$lib/api';
+	import {
+		checkStitch,
+		fetchDuplicateGroups,
+		fetchSessionAssets,
+		getAuthStatus,
+		getServerInfo,
+		type AuthUser,
+		type ServerInfo
+	} from '$lib/api';
 	import { buildPlan, commitPlan, type CommitPlan } from '$lib/commit';
 	import { groupAssets, takenAt } from '$lib/grouping';
 	import { setupImmich } from '$lib/immich';
@@ -10,6 +18,7 @@
 	import { DEFAULT_SETTINGS, type SessionSource, type Settings } from '$lib/types';
 	import { plural } from '$lib/format';
 	import Battle from '$lib/components/Battle.svelte';
+	import Cheatsheet from '$lib/components/Cheatsheet.svelte';
 	import GroupDone from '$lib/components/GroupDone.svelte';
 	import Login from '$lib/components/Login.svelte';
 	import Picker from '$lib/components/Picker.svelte';
@@ -33,17 +42,41 @@
 	let loadError = $state('');
 	let user = $state<AuthUser | null>(null);
 	let stitch = $state(false);
+	let serverInfo = $state.raw<ServerInfo | null>(null);
+	let versionBannerDismissed = $state(false);
+	let cheatsheetOpen = $state(false);
+	let battleOverlay = $state(false);
+
+	interface UpdateInfo {
+		current: string;
+		latest: string | null;
+		updateAvailable: boolean;
+		url: string | null;
+	}
+	let updateInfo = $state.raw<UpdateInfo | null>(null);
+	let dismissedUpdate = $state('');
+
+	const fetchUpdateInfo = async (): Promise<UpdateInfo | null> => {
+		try {
+			const res = await fetch('/api/update');
+			return res.ok ? ((await res.json()) as UpdateInfo) : null;
+		} catch {
+			return null;
+		}
+	};
 	let saved = $state.raw<SessionData | null>(null);
 
 	let fetchCount = $state(0);
 	let fetchSummary = $state<{ assets: number; groups: number } | null>(null);
 	let fetchEmpty = $state(false);
+	let fetchKind = $state<SessionSource['kind'] | null>(null);
 
 	let plan = $state.raw<CommitPlan | null>(null);
 	let commitLog = $state<string[]>([]);
 	let commitFailed = $state(false);
 	let doneSummary = $state<Tally | null>(null);
 	let doneReviewed = $state(0);
+	let statsLine = $state('');
 
 	let toast = $state<ToastData | null>(null);
 	let toastTimer: ReturnType<typeof setTimeout> | undefined;
@@ -61,6 +94,7 @@
 		loadError = '';
 		setupImmich();
 		session.settings = loadSettings();
+		dismissedUpdate = localStorage.getItem('focull.dismissedUpdate') ?? '';
 		try {
 			const status = await getAuthStatus();
 			if (!status.configured) {
@@ -73,6 +107,7 @@
 				return;
 			}
 			user = status.user ?? null;
+			[serverInfo, updateInfo] = await Promise.all([getServerInfo(), fetchUpdateInfo()]);
 			saved = (await loadSession()) ?? null;
 			phase = saved ? 'resume' : 'picker';
 		} catch (e) {
@@ -101,14 +136,21 @@
 		fetchCount = 0;
 		fetchSummary = null;
 		fetchEmpty = false;
+		fetchKind = source.kind;
 		try {
-			const assets = await fetchSessionAssets(source, session.settings, (n) => (fetchCount = n));
-			if (assets.length === 0) {
+			const groups =
+				source.kind === 'duplicates'
+					? await fetchDuplicateGroups(session.settings)
+					: groupAssets(
+							await fetchSessionAssets(source, session.settings, (n) => (fetchCount = n)),
+							session.settings
+						);
+			if (groups.length === 0) {
 				fetchEmpty = true;
 				return;
 			}
-			const groups = groupAssets(assets, session.settings);
-			fetchSummary = { assets: assets.length, groups: groups.length };
+			const assetCount = groups.reduce((sum, g) => sum + g.assets.length, 0);
+			fetchSummary = { assets: assetCount, groups: groups.length };
 			session.start(groups, source, session.settings);
 			setTimeout(() => {
 				if (phase === 'fetching') phase = 'battle';
@@ -127,12 +169,12 @@
 		const s = session.current;
 		if (!g || !s) {
 			phase = 'picker';
-		} else if (g.assets.length === 1 && s.fates[0] !== undefined) {
-			advance();
-		} else if (g.assets.length > 1 && s.queue.length === 0) {
-			phase = 'group-done';
-		} else {
+		} else if (g.assets.length > 1 && s.queue.length === 0 && !session.skipped.includes(session.gi)) {
+			phase = 'group-done'; // finished duel, was waiting on Enter
+		} else if (session.isPending(session.gi)) {
 			phase = 'battle';
+		} else {
+			advance();
 		}
 	}
 
@@ -142,15 +184,27 @@
 		phase = 'picker';
 	}
 
-	/** After a group is settled: next duel, or the review screen when it was the last. */
+	/** After a group is settled or skipped: next pending group, or the review screen when none remain. */
 	function advance() {
-		if (session.gi + 1 < session.groups.length) {
-			session.next();
+		if (session.gotoNextPending()) {
 			phase = 'battle';
 		} else {
-			plan = sanitize(buildPlan(session.groups, session.states, session.settings));
+			plan = computePlan();
 			phase = 'review';
 		}
+	}
+
+	/** Plan over judged groups only — skipped (and unjudged single) groups must stay untouched. */
+	function computePlan(): CommitPlan {
+		const judged = session.groups.map((_, i) => i).filter((i) => session.isJudged(i));
+		return sanitize(
+			buildPlan(
+				judged.map((i) => session.groups[i]),
+				judged.map((i) => session.states[i]),
+				session.settings,
+				$state.snapshot(session.stagedAlbums)
+			)
+		);
 	}
 
 	/** buildPlan emits a degenerate [winner, winner] stack for culled single-asset groups — drop those. */
@@ -172,12 +226,25 @@
 			}
 			doneSummary = { ...session.tally };
 			doneReviewed = plan.reviewedIds.length;
+			statsLine = buildStatsLine(plan);
 			void clearSession();
 			phase = 'done';
 		} catch (e) {
 			commitLog.push(`ERROR: ${e instanceof Error ? e.message : String(e)}`);
 			commitFailed = true;
 		}
+	}
+
+	/** One mono line of session stats: "214 assets · 38 min · 5.6 decisions/min · 71% culled". */
+	function buildStatsLine(p: CommitPlan): string {
+		const assets = p.reviewedIds.length;
+		if (assets === 0) return '';
+		const minutes = Math.max((Date.now() - session.startedAt) / 60_000, 1 / 60);
+		const decisions = session.decisionCount;
+		const dpm = decisions / minutes;
+		const culledPct = Math.round((p.rejectIds.length / assets) * 100);
+		const minuteStr = minutes < 1 ? '<1 min' : `${Math.round(minutes)} min`;
+		return `${assets} assets · ${minuteStr} · ${dpm >= 10 ? Math.round(dpm) : dpm.toFixed(1)} decisions/min · ${culledPct}% culled`;
 	}
 
 	function newSession() {
@@ -205,13 +272,23 @@
 	createHotkey('Escape', escapeOut, () => ({
 		conflictBehavior: 'allow',
 		enabled:
-			phase === 'battle' ||
-			phase === 'group-done' ||
-			phase === 'review' ||
-			phase === 'done' ||
-			(phase === 'fetching' && fetchEmpty) ||
-			(phase === 'committing' && commitFailed)
+			!cheatsheetOpen &&
+			!battleOverlay &&
+			(phase === 'battle' ||
+				phase === 'group-done' ||
+				phase === 'review' ||
+				phase === 'done' ||
+				(phase === 'fetching' && fetchEmpty) ||
+				(phase === 'committing' && commitFailed))
 	}));
+
+	// '?' needs shift on most layouts but not all — register both variants.
+	createHotkey({ key: '?', shift: true }, () => (cheatsheetOpen = !cheatsheetOpen), {
+		conflictBehavior: 'allow'
+	});
+	createHotkey({ key: '?' }, () => (cheatsheetOpen = !cheatsheetOpen), {
+		conflictBehavior: 'allow'
+	});
 
 	createHotkey(
 		'Enter',
@@ -261,6 +338,8 @@
 	<Login
 		onSuccess={(u) => {
 			user = u;
+			void getServerInfo().then((info) => (serverInfo = info));
+			void fetchUpdateInfo().then((info) => (updateInfo = info));
 			void loadSession().then((s) => {
 				saved = s ?? null;
 				phase = saved ? 'resume' : 'picker';
@@ -287,18 +366,36 @@
 	<Picker
 		{user}
 		stitchAvailable={stitch}
+		{serverInfo}
+		showVersionBanner={serverInfo !== null && !serverInfo.compatible && !versionBannerDismissed}
+		onDismissBanner={() => (versionBannerDismissed = true)}
+		{updateInfo}
+		showUpdateBanner={updateInfo?.updateAvailable === true &&
+			updateInfo.latest !== null &&
+			updateInfo.latest !== dismissedUpdate}
+		onDismissUpdate={() => {
+			if (updateInfo?.latest) {
+				dismissedUpdate = updateInfo.latest;
+				localStorage.setItem('focull.dismissedUpdate', updateInfo.latest);
+			}
+		}}
 		onStart={(source) => void startSession(source)}
 		onLogout={() => {
 			user = null;
 			phase = 'login';
 		}}
+		onHelp={() => (cheatsheetOpen = true)}
 	/>
 {:else if phase === 'fetching'}
 	<div class="center-screen">
 		<div class="mini">
 			<span class="brand">focull<span class="dot">.</span></span>
 			{#if fetchEmpty}
-				<p class="mono">No assets match — nothing to cull. Nice and tidy.</p>
+				<p class="mono">
+					{fetchKind === 'duplicates'
+						? 'No duplicates found — your library is already tidy.'
+						: 'No assets match — nothing to cull. Nice and tidy.'}
+				</p>
 				<button type="button" class="btn" onclick={newSession}>back to picker ↵</button>
 			{:else if fetchSummary}
 				<p class="mono summary">
@@ -311,17 +408,26 @@
 	</div>
 {:else if phase === 'battle' || phase === 'group-done'}
 	<Battle
-		active={phase === 'battle'}
+		active={phase === 'battle' && !cheatsheetOpen}
 		stitchAvailable={stitch}
 		{notify}
 		onGroupDone={() => (phase = 'group-done')}
 		onSingleDone={advance}
+		onSkipped={advance}
+		onHelp={() => (cheatsheetOpen = true)}
+		onOverlay={(open) => (battleOverlay = open)}
 	/>
 	{#if phase === 'group-done'}
 		<GroupDone last={session.gi + 1 >= session.groups.length} onNext={advance} />
 	{/if}
 {:else if phase === 'review' && plan}
-	<Review {plan} onCommit={() => void commit()} />
+	<Review
+		{plan}
+		stitchAvailable={stitch}
+		{notify}
+		onChanged={() => (plan = computePlan())}
+		onCommit={() => void commit()}
+	/>
 {:else if phase === 'committing'}
 	<div class="center-screen">
 		<div class="card notice wide">
@@ -343,13 +449,19 @@
 	<div class="center-screen">
 		<div class="card notice">
 			<span class="brand">focull<span class="dot">.</span></span>
-			<h1>Session committed</h1>
-			{#if doneSummary}
+			<h1>{doneReviewed > 0 ? 'Session committed' : 'Nothing committed'}</h1>
+			{#if doneReviewed === 0}
+				<p class="mono muted">every group was skipped — the library is untouched</p>
+			{/if}
+			{#if doneSummary && doneReviewed > 0}
 				<p class="mono">
 					<span class="k">✓ {doneSummary.kept} kept</span> ·
 					<span class="c">✕ {doneSummary.culled} culled</span> ·
 					<span class="r">◉ {doneSummary.reel} reel</span>
 				</p>
+			{/if}
+			{#if statsLine}
+				<p class="mono muted">{statsLine}</p>
 			{/if}
 			{#if doneReviewed > 0}
 				<p class="mono muted">
@@ -363,6 +475,10 @@
 			<button type="button" class="ghost mono" onclick={newSession}><kbd>R</kbd> new session</button>
 		</div>
 	</div>
+{/if}
+
+{#if cheatsheetOpen}
+	<Cheatsheet onClose={() => (cheatsheetOpen = false)} />
 {/if}
 
 <Toast {toast} />

@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "kalamu": {
+      "source": "hemalr/kalamu",
+      "sourceType": "github",
+      "skillPath": "skills/kalamu/SKILL.md",
+      "computedHash": "9129456def12a2443583ce8f419471e4d8001cdf092ba9bc96c191843f3f8c11"
+    }
+  }
+}

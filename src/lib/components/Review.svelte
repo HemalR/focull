@@ -3,35 +3,82 @@
 	import { createHotkey } from '@tanstack/svelte-hotkeys';
 	import type { CommitPlan } from '$lib/commit';
 	import { thumbnailUrl } from '$lib/immich';
+	import { thumbhashStyle } from '$lib/thumbhash';
 	import { durationMs, fmtDuration, plural } from '$lib/format';
 	import { session } from '$lib/session.svelte';
+	import type { Fate } from '$lib/types';
 	import KeyLegend from './KeyLegend.svelte';
 
-	let { plan, onCommit }: { plan: CommitPlan; onCommit: () => void } = $props();
+	interface Props {
+		plan: CommitPlan;
+		stitchAvailable: boolean;
+		notify: (msg: string) => void;
+		/** A fate was edited — recompute the plan. */
+		onChanged: () => void;
+		onCommit: () => void;
+	}
 
-	const byId = $derived(
-		new Map(session.groups.flatMap((g) => g.assets).map((a) => [a.id, a]))
+	let { plan, stitchAvailable, notify, onChanged, onCommit }: Props = $props();
+
+	interface Thumb {
+		asset: AssetResponseDto;
+		gi: number;
+		ai: number;
+		/** Carries a fate, so clicking cycles it. The champion has none. */
+		editable: boolean;
+	}
+
+	const locate = $derived(
+		new Map(
+			session.groups.flatMap((g, gi) => g.assets.map((a, ai) => [a.id, { gi, ai, asset: a }]))
+		)
 	);
-	const assets = (ids: string[]): AssetResponseDto[] =>
-		ids.map((id) => byId.get(id)).filter((a) => a !== undefined);
 
-	/** Winners of finished multi-asset groups + everything explicitly kept, chronological. */
+	const toThumb = (id: string): Thumb | null => {
+		const loc = locate.get(id);
+		return loc
+			? {
+					asset: loc.asset,
+					gi: loc.gi,
+					ai: loc.ai,
+					editable: session.states[loc.gi]?.fates[loc.ai] !== undefined
+				}
+			: null;
+	};
+
+	/** Winners of judged groups + everything explicitly kept, chronological. */
 	const keepers = $derived.by(() => {
-		const out: AssetResponseDto[] = [];
-		session.groups.forEach((g, i) => {
-			const s = session.states[i];
-			if (s.queue.length > 0) return;
-			g.assets.forEach((a, ai) => {
+		const out: Thumb[] = [];
+		session.groups.forEach((g, gi) => {
+			if (!session.isJudged(gi)) return;
+			const s = session.states[gi];
+			g.assets.forEach((asset, ai) => {
 				const fate = s.fates[ai];
-				if (fate === 'kept' || (ai === s.championIdx && fate === undefined)) out.push(a);
+				if (fate === 'kept' || (ai === s.championIdx && fate === undefined)) {
+					out.push({ asset, gi, ai, editable: fate !== undefined });
+				}
 			});
 		});
 		return out;
 	});
 
-	const culled = $derived(assets(plan.rejectIds));
+	const culled = $derived(plan.rejectIds.map(toThumb).filter((t) => t !== null));
 	const reelClips = $derived(plan.reels.reduce((sum, r) => sum + r.assetIds.length, 0));
 	const stacks = $derived(plan.stacks.length + plan.reels.length);
+
+	const FATE_LABEL: Record<Fate, string> = {
+		rejected: 'cull pile',
+		kept: 'kept',
+		reel: 'reel'
+	};
+
+	function cycle(thumb: Thumb) {
+		const allowReel = session.groups[thumb.gi]?.kind === 'video' && stitchAvailable;
+		const next = session.cycleFate(thumb.gi, thumb.ai, allowReel);
+		if (next === null) return;
+		notify(`${thumb.asset.originalFileName} → ${FATE_LABEL[next]}`);
+		onChanged();
+	}
 
 	const sentence = $derived.by(() => {
 		const { rejectAction, tagName, reviewedTagName } = session.settings;
@@ -43,6 +90,7 @@
 		}
 		if (stacks > 0) parts.push(`stack culled shots behind their winners (${plural(stacks, 'stack')})`);
 		if (plan.reels.length > 0) parts.push(`stitch ${plural(plan.reels.length, 'reel')} (${plural(reelClips, 'clip')})`);
+		if (plan.albums.length > 0) parts.push(`update ${plural(plan.albums.length, 'album')}`);
 		if (plan.reviewedIds.length > 0) {
 			parts.push(`mark all ${plural(plan.reviewedIds.length, 'processed asset')} #${reviewedTagName} so future sessions skip them`);
 		}
@@ -54,20 +102,40 @@
 	createHotkey('Enter', () => onCommit(), { conflictBehavior: 'allow' });
 </script>
 
-{#snippet thumbRow(list: AssetResponseDto[], cls: string)}
-	<div class={['thumbs', cls]}>
-		{#each list as asset (asset.id)}
-			<span class="thumb" title={asset.originalFileName}>
-				<img src={thumbnailUrl(asset.id)} alt={asset.originalFileName} loading="lazy" />
-			</span>
-		{/each}
-	</div>
+{#snippet mini(thumb: Thumb, extra?: string)}
+	{#if thumb.editable}
+		<button
+			type="button"
+			class="thumb editable"
+			title="{thumb.asset.originalFileName} — click to change its fate"
+			onclick={() => cycle(thumb)}
+		>
+			<img
+				src={thumbnailUrl(thumb.asset.id)}
+				alt={thumb.asset.originalFileName}
+				loading="lazy"
+				style={thumbhashStyle(thumb.asset)}
+			/>
+			{#if extra}<span class="dur mono">{extra}</span>{/if}
+		</button>
+	{:else}
+		<span class="thumb" title="{thumb.asset.originalFileName} — the winner">
+			<img
+				src={thumbnailUrl(thumb.asset.id)}
+				alt={thumb.asset.originalFileName}
+				loading="lazy"
+				style={thumbhashStyle(thumb.asset)}
+			/>
+			{#if extra}<span class="dur mono">{extra}</span>{/if}
+		</span>
+	{/if}
 {/snippet}
 
 <div class="review">
 	<header>
 		<span class="brand">focull<span class="dot">.</span></span>
 		<span class="label">review</span>
+		<span class="muted mono hint">click a thumb to change its fate</span>
 	</header>
 
 	<main>
@@ -78,26 +146,33 @@
 			<div class="card tile"><strong>{stacks}</strong><span class="label">stacks</span></div>
 		</div>
 
+		{#if session.skipped.length > 0}
+			<p class="muted mono skipped">
+				{plural(session.skipped.length, 'group')} skipped — they stay unreviewed
+			</p>
+		{/if}
+
 		{#if keepers.length > 0}
 			<section>
 				<h2 class="label">keepers</h2>
-				{@render thumbRow(keepers, 'keepers')}
+				<div class="thumbs keepers">
+					{#each keepers as thumb (thumb.asset.id)}{@render mini(thumb)}{/each}
+				</div>
 			</section>
 		{/if}
 
 		{#each plan.reels as reel, ri (reel.filename)}
-			{@const clips = assets(reel.assetIds)}
+			{@const clips = reel.assetIds.map(toThumb).filter((t) => t !== null)}
 			<section>
 				<h2 class="label">
 					reel{plan.reels.length > 1 ? ` ${ri + 1}` : ''} ·
-					{fmtDuration(clips.reduce((sum, a) => sum + durationMs(a.duration), 0))} total
+					{fmtDuration(clips.reduce((sum, t) => sum + durationMs(t.asset.duration), 0))} total
 				</h2>
-				<div class="thumbs">
-					{#each clips as asset, i (asset.id)}
-						<span class="thumb reel-clip" title={asset.originalFileName}>
-							<img src={thumbnailUrl(asset.id)} alt={asset.originalFileName} loading="lazy" />
+				<div class="thumbs reel-row">
+					{#each clips as thumb, i (thumb.asset.id)}
+						<span class="clip">
 							<span class="order mono">{i + 1}</span>
-							<span class="dur mono">{fmtDuration(asset.duration)}</span>
+							{@render mini(thumb, fmtDuration(thumb.asset.duration))}
 						</span>
 					{/each}
 				</div>
@@ -107,7 +182,23 @@
 		{#if culled.length > 0}
 			<section>
 				<h2 class="label">culled</h2>
-				{@render thumbRow(culled, 'dimmed')}
+				<div class="thumbs dimmed">
+					{#each culled as thumb (thumb.asset.id)}{@render mini(thumb)}{/each}
+				</div>
+			</section>
+		{/if}
+
+		{#if plan.albums.length > 0}
+			<section>
+				<h2 class="label">albums</h2>
+				<ul class="albums mono">
+					{#each plan.albums as album (album.albumId ?? album.name)}
+						<li>
+							◇ {album.name} — {plural(album.assetIds.length, 'asset')}
+							{#if !album.albumId}<span class="muted">(created on commit)</span>{/if}
+						</li>
+					{/each}
+				</ul>
 			</section>
 		{/if}
 
@@ -118,7 +209,7 @@
 
 	<KeyLegend
 		items={[{ key: '↵', label: 'commit', action: onCommit }]}
-		notes={['esc back to picker']}
+		notes={['click thumbs to re-fate', 'esc back to picker']}
 	/>
 </div>
 
@@ -136,6 +227,11 @@
 		padding: 10px 14px;
 		border-bottom: 1px solid var(--line);
 		background: var(--panel);
+	}
+
+	.hint {
+		margin-left: auto;
+		font-size: 11px;
 	}
 
 	main {
@@ -179,6 +275,11 @@
 		color: var(--reel);
 	}
 
+	.skipped {
+		margin: -8px 0 0;
+		font-size: 12px;
+	}
+
 	section {
 		display: flex;
 		flex-direction: column;
@@ -203,6 +304,8 @@
 		border-radius: 4px;
 		overflow: hidden;
 		background: #000;
+		padding: 0;
+		display: block;
 	}
 
 	.thumb img {
@@ -210,6 +313,11 @@
 		height: 100%;
 		object-fit: cover;
 		display: block;
+	}
+
+	button.thumb.editable:hover {
+		border-color: var(--amber);
+		box-shadow: 0 0 0 1px var(--amber-dim);
 	}
 
 	.keepers .thumb {
@@ -220,17 +328,27 @@
 		opacity: 0.4;
 	}
 
-	.reel-clip {
+	.dimmed button.thumb:hover {
+		opacity: 1;
+	}
+
+	.reel-row .thumb {
 		border-color: var(--reel);
+	}
+
+	.clip {
+		position: relative;
 	}
 
 	.order {
 		position: absolute;
 		top: 2px;
 		left: 4px;
+		z-index: 2;
 		font-size: 11px;
 		color: var(--reel);
 		text-shadow: 0 1px 3px #000;
+		pointer-events: none;
 	}
 
 	.dur {
@@ -240,6 +358,16 @@
 		font-size: 10px;
 		color: var(--ink);
 		text-shadow: 0 1px 3px #000;
+	}
+
+	.albums {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 5px;
+		font-size: 12px;
 	}
 
 	.sentence {

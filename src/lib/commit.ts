@@ -1,12 +1,14 @@
 import {
 	AssetVisibility,
+	addAssetsToAlbum,
 	bulkTagAssets,
+	createAlbum,
 	createStack,
 	deleteAssets,
 	updateAssets,
 	upsertTags
 } from '@immich/sdk';
-import type { CullGroup, GroupState, Settings } from './types';
+import type { CullGroup, GroupState, Settings, StagedAlbum } from './types';
 import { takenAt } from './grouping';
 
 export interface ReelPlan {
@@ -24,11 +26,18 @@ export interface CommitPlan {
 	reels: ReelPlan[];
 	/** Every asset a finished group processed — tagged as reviewed so later sessions skip them. */
 	reviewedIds: string[];
+	/** Staged album assignments, minus any asset that ended up culled. */
+	albums: StagedAlbum[];
 }
 
 /** Pure translation of finished battle states into Immich writes; drives both the review screen and the commit. */
-export function buildPlan(groups: CullGroup[], states: GroupState[], _settings: Settings): CommitPlan {
-	const plan: CommitPlan = { rejectIds: [], stacks: [], reels: [], reviewedIds: [] };
+export function buildPlan(
+	groups: CullGroup[],
+	states: GroupState[],
+	_settings: Settings,
+	stagedAlbums: StagedAlbum[] = []
+): CommitPlan {
+	const plan: CommitPlan = { rejectIds: [], stacks: [], reels: [], reviewedIds: [], albums: [] };
 
 	groups.forEach((group, i) => {
 		const state = states[i];
@@ -63,6 +72,13 @@ export function buildPlan(groups: CullGroup[], states: GroupState[], _settings: 
 			plan.stacks.push([winner, ...rejects]);
 		}
 	});
+
+	// Album intent survives unless the asset was ultimately culled.
+	const rejected = new Set(plan.rejectIds);
+	for (const staged of stagedAlbums) {
+		const assetIds = staged.assetIds.filter((id) => !rejected.has(id));
+		if (assetIds.length > 0) plan.albums.push({ ...staged, assetIds });
+	}
 	return plan;
 }
 
@@ -119,6 +135,19 @@ export async function commitPlan(
 		} else {
 			log(`Stitch failed (${res.status}): ${await res.text()} — falling back to a plain stack`);
 			if (reel.stackWith.length >= 2) await stack(reel.stackWith, log);
+		}
+	}
+
+	for (const album of plan.albums) {
+		try {
+			if (album.albumId) {
+				await addAssetsToAlbum({ id: album.albumId, bulkIdsDto: { ids: album.assetIds } });
+			} else {
+				await createAlbum({ createAlbumDto: { albumName: album.name, assetIds: album.assetIds } });
+			}
+			log(`Album "${album.name}" — ${album.assetIds.length} asset${album.assetIds.length === 1 ? '' : 's'}`);
+		} catch (e) {
+			log(`Could not update album "${album.name}": ${message(e)}`);
 		}
 	}
 

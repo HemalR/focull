@@ -1,7 +1,7 @@
 {
 	"name": "focull",
 	"private": true,
-	"version": "0.0.1",
+	"version": "0.1.0",
 	"type": "module",
 	"scripts": {
 		"dev": "vite dev",
@@ -24,6 +24,7 @@
 	},
 	"dependencies": {
 		"@immich/sdk": "^3.0.3",
-		"@tanstack/svelte-hotkeys": "^0.10.0"
+		"@tanstack/svelte-hotkeys": "^0.10.0",
+		"thumbhash": "^0.1.1"
 	}
 }

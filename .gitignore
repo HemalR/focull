@@ -21,3 +21,8 @@ Thumbs.db
 # Vite
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# Kalamu view state and caches (never canonical)
+.kalamu/cache.sqlite
+.kalamu/ui-state.json
+.kalamu/*.lock

@@ -12,4 +12,7 @@ export const thumbnailUrl = (id: string, size: AssetMediaSize = AssetMediaSize.T
 
 export const previewUrl = (id: string): string => thumbnailUrl(id, AssetMediaSize.Preview);
 
+/** Full-resolution rendition — used when zooming for sharpness checks. */
+export const fullsizeUrl = (id: string): string => thumbnailUrl(id, AssetMediaSize.Fullsize);
+
 export const playbackUrl = (id: string): string => `/api/immich/assets/${id}/video/playback`;

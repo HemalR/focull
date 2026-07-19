@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { createHotkey } from '@tanstack/svelte-hotkeys';
 	import { thumbnailUrl } from '$lib/immich';
+	import { thumbhashStyle } from '$lib/thumbhash';
 	import { durationMs, fmtDuration, plural } from '$lib/format';
 	import { session } from '$lib/session.svelte';
 
@@ -36,7 +37,7 @@
 		<span class="label">last one standing</span>
 		{#if winner}
 			<span class="stack-thumb">
-				<img src={thumbnailUrl(winner.id)} alt={winner.originalFileName} />
+				<img src={thumbnailUrl(winner.id)} alt={winner.originalFileName} style={thumbhashStyle(winner)} />
 			</span>
 			<span class="mono name">{winner.originalFileName}</span>
 		{/if}

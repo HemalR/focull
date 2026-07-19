@@ -1,5 +1,13 @@
 import type { AssetResponseDto } from '@immich/sdk';
-import { DEFAULT_SETTINGS, type CullGroup, type Fate, type GroupState, type SessionSource, type Settings } from './types';
+import {
+	DEFAULT_SETTINGS,
+	type CullGroup,
+	type Fate,
+	type GroupState,
+	type SessionSource,
+	type Settings,
+	type StagedAlbum
+} from './types';
 
 export interface SessionData {
 	source: SessionSource;
@@ -7,6 +15,12 @@ export interface SessionData {
 	groups: CullGroup[];
 	states: GroupState[];
 	gi: number;
+	/** Indices of groups the user skipped — left unfinished on purpose, never committed. */
+	skipped: number[];
+	/** Epoch ms when the session started, for the done-screen stats line. */
+	startedAt: number;
+	/** Album assignments staged during battle, applied at commit. */
+	stagedAlbums: StagedAlbum[];
 }
 
 export interface Tally {
@@ -44,6 +58,10 @@ class CullSession {
 	groups = $state.raw<CullGroup[]>([]);
 	states = $state<GroupState[]>([]);
 	gi = $state(0);
+	skipped = $state<number[]>([]);
+	startedAt = $state(0);
+	/** Not part of undo snapshots — album intent shouldn't vanish when a duel is undone. */
+	stagedAlbums = $state<StagedAlbum[]>([]);
 	/** Bumped on every mutation — watch it to persist. */
 	rev = $state(0);
 	#undo: string[] = [];
@@ -58,6 +76,24 @@ class CullSession {
 
 	get hasDecisions(): boolean {
 		return this.gi > 0 || this.states.some((s) => Object.keys(s.fates).length > 0);
+	}
+
+	/** Total fates assigned across the whole session (for the stats line). */
+	get decisionCount(): number {
+		return this.states.reduce((sum, s) => sum + Object.keys(s.fates).length, 0);
+	}
+
+	/** Fully judged and not skipped — the groups buildPlan/commit should see. */
+	isJudged(i: number): boolean {
+		const group = this.groups[i];
+		const s = this.states[i];
+		if (!group || !s || this.skipped.includes(i)) return false;
+		return group.assets.length === 1 ? s.fates[0] !== undefined : s.queue.length === 0;
+	}
+
+	/** Still needs the user's attention: not skipped and not judged. */
+	isPending(i: number): boolean {
+		return !this.skipped.includes(i) && !this.isJudged(i) && this.groups[i] !== undefined;
 	}
 
 	/** Session-wide live counts. Champions of finished multi-asset groups count as kept. */
@@ -82,7 +118,10 @@ class CullSession {
 			settings: $state.snapshot(this.settings),
 			groups: this.groups,
 			states: $state.snapshot(this.states),
-			gi: this.gi
+			gi: this.gi,
+			skipped: $state.snapshot(this.skipped),
+			startedAt: this.startedAt,
+			stagedAlbums: $state.snapshot(this.stagedAlbums)
 		};
 	}
 
@@ -94,6 +133,9 @@ class CullSession {
 			fates: {}
 		}));
 		this.gi = 0;
+		this.skipped = [];
+		this.startedAt = Date.now();
+		this.stagedAlbums = [];
 		this.source = source;
 		this.settings = { ...settings };
 		this.#undo = [];
@@ -104,6 +146,9 @@ class CullSession {
 		this.groups = data.groups;
 		this.states = data.states;
 		this.gi = Math.min(data.gi, data.groups.length - 1);
+		this.skipped = data.skipped ?? [];
+		this.startedAt = data.startedAt ?? Date.now();
+		this.stagedAlbums = data.stagedAlbums ?? [];
 		this.source = data.source;
 		this.settings = { ...DEFAULT_SETTINGS, ...data.settings };
 		this.#undo = [];
@@ -114,6 +159,9 @@ class CullSession {
 		this.groups = [];
 		this.states = [];
 		this.gi = 0;
+		this.skipped = [];
+		this.startedAt = 0;
+		this.stagedAlbums = [];
 		this.source = null;
 		this.#undo = [];
 		this.rev++;
@@ -136,13 +184,12 @@ class CullSession {
 
 	/** Champion is culled; the challenger takes the crown. */
 	dethrone(): void {
-		const s = this.current;
-		if (!s || s.queue.length === 0) return;
-		this.#snapshot();
-		s.fates[s.championIdx] = 'rejected';
-		const next = s.queue.shift();
-		if (next !== undefined) s.championIdx = next;
-		this.rev++;
+		this.#crown('rejected');
+	}
+
+	/** Challenger takes the crown but the old champion survives as kept. */
+	promoteKeep(): void {
+		this.#crown('kept');
 	}
 
 	/** Move an undecided asset to the front of the queue. */
@@ -165,20 +212,84 @@ class CullSession {
 		this.rev++;
 	}
 
-	/** Advance to the next group. Deliberately not snapshotted — undo steps back into decisions, not navigation. */
-	next(): void {
-		if (this.gi + 1 < this.groups.length) {
-			this.gi++;
-			this.rev++;
+	/** Leave the current group unfinished on purpose; commit and reviewed-tagging ignore it. */
+	skipCurrent(): void {
+		if (this.skipped.includes(this.gi)) return;
+		this.#snapshot();
+		this.skipped.push(this.gi);
+		this.rev++;
+	}
+
+	/**
+	 * Move to the next group that still needs judging (skipped ones excluded).
+	 * Deliberately not snapshotted — undo steps back into decisions, not navigation.
+	 * Returns false when none remain, i.e. it's review time.
+	 */
+	gotoNextPending(): boolean {
+		for (let i = this.gi + 1; i < this.groups.length; i++) {
+			if (this.isPending(i)) {
+				this.gi = i;
+				this.rev++;
+				return true;
+			}
 		}
+		return false;
+	}
+
+	/**
+	 * Review-screen fate editing: rejected ↔ kept, with reel in the cycle when allowed.
+	 * Only assets that already carry a fate cycle (the champion never has one).
+	 */
+	cycleFate(groupIdx: number, assetIdx: number, allowReel: boolean): Fate | null {
+		const s = this.states[groupIdx];
+		const fate = s?.fates[assetIdx];
+		if (!s || fate === undefined) return null;
+		const cycle: Fate[] = allowReel ? ['rejected', 'kept', 'reel'] : ['rejected', 'kept'];
+		const next = cycle[(cycle.indexOf(fate) + 1) % cycle.length] ?? 'rejected';
+		s.fates[assetIdx] = next;
+		this.rev++;
+		return next;
+	}
+
+	/**
+	 * Stage/unstage an asset for an album (matched by albumId, or by name for
+	 * to-be-created ones). Returns true when the asset is now staged.
+	 */
+	toggleAlbumStage(album: { albumId?: string; name: string }, assetId: string): boolean {
+		const entry = this.stagedAlbums.find((s) =>
+			album.albumId ? s.albumId === album.albumId : !s.albumId && s.name === album.name
+		);
+		if (!entry) {
+			this.stagedAlbums.push({ albumId: album.albumId, name: album.name, assetIds: [assetId] });
+			this.rev++;
+			return true;
+		}
+		const idx = entry.assetIds.indexOf(assetId);
+		if (idx === -1) entry.assetIds.push(assetId);
+		else {
+			entry.assetIds.splice(idx, 1);
+			if (entry.assetIds.length === 0) this.stagedAlbums.splice(this.stagedAlbums.indexOf(entry), 1);
+		}
+		this.rev++;
+		return idx === -1;
+	}
+
+	/** How many albums an asset is currently staged to. */
+	stagedCount(assetId: string): number {
+		return this.stagedAlbums.filter((s) => s.assetIds.includes(assetId)).length;
 	}
 
 	undo(): boolean {
 		const snap = this.#undo.pop();
 		if (!snap) return false;
-		const { states, gi } = JSON.parse(snap) as { states: GroupState[]; gi: number };
+		const { states, gi, skipped } = JSON.parse(snap) as {
+			states: GroupState[];
+			gi: number;
+			skipped: number[];
+		};
 		this.states = states;
 		this.gi = gi;
+		this.skipped = skipped;
 		this.rev++;
 		return true;
 	}
@@ -192,8 +303,25 @@ class CullSession {
 		this.rev++;
 	}
 
+	/** Challenger becomes champion; the old champion gets the given fate. */
+	#crown(oldChampionFate: Fate): void {
+		const s = this.current;
+		if (!s || s.queue.length === 0) return;
+		this.#snapshot();
+		s.fates[s.championIdx] = oldChampionFate;
+		const next = s.queue.shift();
+		if (next !== undefined) s.championIdx = next;
+		this.rev++;
+	}
+
 	#snapshot(): void {
-		this.#undo.push(JSON.stringify({ states: $state.snapshot(this.states), gi: this.gi }));
+		this.#undo.push(
+			JSON.stringify({
+				states: $state.snapshot(this.states),
+				gi: this.gi,
+				skipped: $state.snapshot(this.skipped)
+			})
+		);
 		if (this.#undo.length > 500) this.#undo.shift();
 	}
 }

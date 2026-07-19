@@ -1,12 +1,16 @@
 import {
 	AssetOrder,
+	AssetTypeEnum,
 	AssetVisibility,
 	getAllTags,
+	getAssetDuplicates,
+	getServerVersion,
 	searchAssets,
 	type AssetResponseDto,
 	type MetadataSearchDto
 } from '@immich/sdk';
-import type { SessionSource, Settings } from './types';
+import { takenAt } from './grouping';
+import type { CullGroup, SessionSource, Settings } from './types';
 
 export interface AuthUser {
 	name: string;
@@ -100,7 +104,7 @@ export async function fetchSessionAssets(
 		size: 1000
 	};
 	if (source.kind === 'album') base.albumIds = [source.albumId];
-	else if (source.kind !== 'unreviewed') {
+	else if (source.kind === 'new' || source.kind === 'range') {
 		base.takenAfter = source.takenAfter;
 		if (source.kind === 'range') base.takenBefore = source.takenBefore;
 	}
@@ -109,4 +113,48 @@ export async function fetchSessionAssets(
 	let count = 0;
 	const all = await searchPaged(base, (items) => onProgress?.((count += items.length)));
 	return all.filter((a) => !a.isTrashed && !a.stack && !judged.has(a.id));
+}
+
+/**
+ * Immich's visual duplicate detection as ready-made battle groups. The suggested keeper
+ * leads each group, so it opens as champion.
+ */
+export async function fetchDuplicateGroups(settings: Settings): Promise<CullGroup[]> {
+	const [duplicates, judged] = await Promise.all([
+		getAssetDuplicates(),
+		fetchTaggedAssetIds([settings.reviewedTagName, settings.tagName])
+	]);
+	const groups: CullGroup[] = [];
+	for (const dup of duplicates) {
+		const usable = dup.assets.filter((a) => !a.isTrashed && !a.stack && !judged.has(a.id));
+		if (usable.length < 2) continue;
+		const suggested = new Set(dup.suggestedKeepAssetIds);
+		usable.sort((a, b) => Number(suggested.has(b.id)) - Number(suggested.has(a.id)) || takenAt(a) - takenAt(b));
+		groups.push({
+			id: dup.duplicateId,
+			kind: usable[0].type === AssetTypeEnum.Video ? 'video' : 'photo',
+			assets: usable
+		});
+	}
+	return groups;
+}
+
+/** Immich server major version focull has been built and tested against. */
+export const TESTED_IMMICH_MAJOR = 3;
+
+export interface ServerInfo {
+	version: string;
+	compatible: boolean;
+}
+
+export async function getServerInfo(): Promise<ServerInfo | null> {
+	try {
+		const v = await getServerVersion();
+		return {
+			version: `v${v.major}.${v.minor}.${v.patch}`,
+			compatible: v.major === TESTED_IMMICH_MAJOR
+		};
+	} catch {
+		return null;
+	}
 }

@@ -1,21 +1,47 @@
 <script lang="ts">
 	import { getAllAlbums, type AlbumResponseDto } from '@immich/sdk';
 	import { createHotkey } from '@tanstack/svelte-hotkeys';
-	import { logout, type AuthUser } from '$lib/api';
+	import { logout, TESTED_IMMICH_MAJOR, type AuthUser, type ServerInfo } from '$lib/api';
 	import { calendarDate, isoDaysAgo, plural } from '$lib/format';
 	import { session } from '$lib/session.svelte';
 	import type { SessionSource } from '$lib/types';
 	import SettingsModal from './SettingsModal.svelte';
 	import KeyLegend from './KeyLegend.svelte';
 
+	interface UpdateInfo {
+		current: string;
+		latest: string | null;
+		updateAvailable: boolean;
+		url: string | null;
+	}
+
 	interface Props {
 		user: AuthUser | null;
 		stitchAvailable: boolean;
+		serverInfo: ServerInfo | null;
+		showVersionBanner: boolean;
+		onDismissBanner: () => void;
+		updateInfo: UpdateInfo | null;
+		showUpdateBanner: boolean;
+		onDismissUpdate: () => void;
 		onStart: (source: SessionSource) => void;
 		onLogout: () => void;
+		onHelp: () => void;
 	}
 
-	let { user, stitchAvailable, onStart, onLogout }: Props = $props();
+	let {
+		user,
+		stitchAvailable,
+		serverInfo,
+		showVersionBanner,
+		onDismissBanner,
+		updateInfo,
+		showUpdateBanner,
+		onDismissUpdate,
+		onStart,
+		onLogout,
+		onHelp
+	}: Props = $props();
 
 	let mode = $state<'none' | 'album' | 'range'>('none');
 	let settingsOpen = $state(false);
@@ -73,6 +99,7 @@
 	createHotkey('2', () => onStart({ kind: 'new', takenAfter: since }), () => ({ enabled: closed }));
 	createHotkey('3', () => void openAlbums(), () => ({ enabled: closed }));
 	createHotkey('4', () => (mode = 'range'), () => ({ enabled: closed }));
+	createHotkey('5', () => onStart({ kind: 'duplicates' }), () => ({ enabled: closed }));
 	createHotkey(',', () => (settingsOpen = true), () => ({ enabled: closed }));
 	createHotkey('Escape', () => (mode = 'none'), () => ({
 		conflictBehavior: 'allow',
@@ -104,6 +131,26 @@
 	</header>
 
 	<main>
+		{#if showVersionBanner && serverInfo}
+			<div class="banner">
+				<span class="mono">
+					Untested against this Immich version (built for v{TESTED_IMMICH_MAJOR}.x) — review
+					commits carefully.
+				</span>
+				<button type="button" class="dismiss mono" onclick={onDismissBanner} title="dismiss">✕</button>
+			</div>
+		{/if}
+
+		{#if showUpdateBanner && updateInfo?.latest}
+			<div class="banner update">
+				<span class="mono">
+					focull v{updateInfo.latest} is available{#if updateInfo.url}
+						· <a href={updateInfo.url} target="_blank" rel="noopener">release notes</a>{/if}
+				</span>
+				<button type="button" class="dismiss mono" onclick={onDismissUpdate} title="dismiss">✕</button>
+			</div>
+		{/if}
+
 		<h1 class="label">pick a session source</h1>
 
 		<div class="sources">
@@ -140,6 +187,14 @@
 				<kbd>4</kbd>
 				<strong>Date range</strong>
 				<span class="muted mono">a specific stretch of time</span>
+			</button>
+
+			<button type="button" class={['card', 'source']} onclick={() => onStart({ kind: 'duplicates' })}>
+				<kbd>5</kbd>
+				<strong>Duplicates</strong>
+				<span class="muted mono">
+					Immich's visual duplicate groups — suggested keeper opens as champion
+				</span>
 			</button>
 		</div>
 
@@ -190,6 +245,10 @@
 		{#if !stitchAvailable}
 			<p class="muted mono stitch-note">video stitching is off — ffmpeg was not found on the server.</p>
 		{/if}
+
+		<p class="muted mono stitch-note">
+			focull v{__APP_VERSION__}{serverInfo ? ` · Immich ${serverInfo.version}` : ''}
+		</p>
 	</main>
 
 	<KeyLegend
@@ -198,7 +257,9 @@
 			{ key: '2', label: 'new since last cull', action: () => onStart({ kind: 'new', takenAfter: since }) },
 			{ key: '3', label: 'album', action: () => void openAlbums() },
 			{ key: '4', label: 'date range', action: () => (mode = 'range') },
-			{ key: ',', label: 'settings', action: () => (settingsOpen = true) }
+			{ key: '5', label: 'duplicates', action: () => onStart({ kind: 'duplicates' }) },
+			{ key: ',', label: 'settings', action: () => (settingsOpen = true) },
+			{ key: '?', label: 'shortcuts', action: onHelp }
 		]}
 		notes={['nothing is deleted until you commit']}
 	/>
@@ -237,11 +298,47 @@
 	main {
 		overflow-y: auto;
 		padding: 40px 24px;
-		width: min(680px, 100%);
+		width: min(900px, 100%);
 		margin: 0 auto;
 		display: flex;
 		flex-direction: column;
 		gap: 18px;
+	}
+
+	.banner {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		padding: 10px 14px;
+		border: 1px solid var(--amber-dim);
+		border-radius: 5px;
+		background: color-mix(in srgb, var(--amber) 8%, var(--panel));
+		color: var(--amber);
+		font-size: 12px;
+	}
+
+	.dismiss {
+		color: var(--amber);
+		padding: 2px 6px;
+	}
+
+	.dismiss:hover {
+		color: var(--ink);
+	}
+
+	.banner.update {
+		border-color: var(--line);
+		background: var(--panel);
+		color: var(--mut);
+	}
+
+	.banner.update a {
+		color: var(--amber);
+	}
+
+	.banner.update .dismiss {
+		color: var(--mut);
 	}
 
 	h1 {
@@ -251,7 +348,7 @@
 
 	.sources {
 		display: grid;
-		grid-template-columns: repeat(4, 1fr);
+		grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
 		gap: 12px;
 	}
 
