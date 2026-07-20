@@ -43,6 +43,14 @@ export const KEYMAP: KeyGroup[] = [
 		]
 	},
 	{
+		title: 'group summary',
+		entries: [
+			{ keys: 'X', label: 'cull the last one standing too — no survivors' },
+			{ keys: 'U', label: 'undo (restores the crown, or the last duel)' },
+			{ keys: '↵', label: 'next group / review' }
+		]
+	},
+	{
 		title: 'review',
 		entries: [
 			{ keys: 'click thumb', label: 'cycle fate — culled → kept (→ reel for video)' },

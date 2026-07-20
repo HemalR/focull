@@ -130,7 +130,8 @@ class CullSession {
 		this.states = this.groups.map((g) => ({
 			championIdx: 0,
 			queue: g.assets.map((_, i) => i).slice(1),
-			fates: {}
+			fates: {},
+			lostTo: {}
 		}));
 		this.gi = 0;
 		this.skipped = [];
@@ -144,7 +145,7 @@ class CullSession {
 
 	restore(data: SessionData): void {
 		this.groups = data.groups;
-		this.states = data.states;
+		this.states = data.states.map((s) => ({ ...s, lostTo: s.lostTo ?? {} }));
 		this.gi = Math.min(data.gi, data.groups.length - 1);
 		this.skipped = data.skipped ?? [];
 		this.startedAt = data.startedAt ?? Date.now();
@@ -247,6 +248,11 @@ class CullSession {
 		const cycle: Fate[] = allowReel ? ['rejected', 'kept', 'reel'] : ['rejected', 'kept'];
 		const next = cycle[(cycle.indexOf(fate) + 1) % cycle.length] ?? 'rejected';
 		s.fates[assetIdx] = next;
+		if (next === 'rejected') {
+			if (assetIdx !== s.championIdx) (s.lostTo ??= {})[assetIdx] = s.championIdx;
+		} else if (fate === 'rejected' && s.lostTo) {
+			delete s.lostTo[assetIdx];
+		}
 		this.rev++;
 		return next;
 	}
@@ -298,7 +304,10 @@ class CullSession {
 		const s = this.current;
 		if (!s || s.queue.length === 0) return;
 		this.#snapshot();
-		s.fates[s.queue[0]] = fate;
+		const challenger = s.queue[0];
+		s.fates[challenger] = fate;
+		// A defended challenger lost to the current champion — it stacks behind it at commit.
+		if (fate === 'rejected') (s.lostTo ??= {})[challenger] = s.championIdx;
 		s.queue.shift();
 		this.rev++;
 	}
@@ -310,8 +319,35 @@ class CullSession {
 		this.#snapshot();
 		s.fates[s.championIdx] = oldChampionFate;
 		const next = s.queue.shift();
-		if (next !== undefined) s.championIdx = next;
+		if (next !== undefined) {
+			// A dethroned champion lost to the challenger that beat it.
+			if (oldChampionFate === 'rejected') (s.lostTo ??= {})[s.championIdx] = next;
+			s.championIdx = next;
+		}
 		this.rev++;
+	}
+
+	/** Cull the last one standing too — no lostTo entry, nothing beat it. */
+	cullChampion(): void {
+		const s = this.current;
+		if (!s || s.fates[s.championIdx] === 'rejected') return;
+		this.#snapshot();
+		s.fates[s.championIdx] = 'rejected';
+		this.rev++;
+	}
+
+	/**
+	 * Review-screen winner editing: toggle the champion between alive (no fate) and
+	 * culled. Returns true when the champion is now culled.
+	 */
+	toggleChampionCull(groupIdx: number): boolean {
+		const s = this.states[groupIdx];
+		if (!s) return false;
+		const culled = s.fates[s.championIdx] !== 'rejected';
+		if (culled) s.fates[s.championIdx] = 'rejected';
+		else delete s.fates[s.championIdx];
+		this.rev++;
+		return culled;
 	}
 
 	#snapshot(): void {

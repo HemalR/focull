@@ -16,6 +16,11 @@ export interface GroupState {
 	championIdx: number;
 	queue: number[];
 	fates: Record<number, Fate>;
+	/**
+	 * For rejected assets: the index of the asset they were culled against, so each reject
+	 * stacks behind the keeper it actually lost to (resolved transitively at commit).
+	 */
+	lostTo?: Record<number, number>;
 }
 
 export type RejectAction = 'tag' | 'archive' | 'trash';

@@ -8,7 +8,7 @@ focull detects bursts and event clusters in your library (time-window grouping),
 
 Nothing touches your library until you review and **commit**, at which point focull writes the results back to Immich:
 
-- Culled assets are **tagged `focull/culled`** (default; archive or trash are opt-in settings) and **stacked behind the winner**, so your timeline instantly shows only keepers while every original survives.
+- Culled assets are **tagged `focull/culled`** (default; archive or trash are opt-in settings) and **stacked behind the keeper they lost to**, so your timeline instantly shows only keepers while every original survives. A group can also end with no survivors — culled shots are then tagged but left unstacked.
 - Everything a committed session touched — winners included — is **tagged `focull/reviewed`**, so future sessions skip photos you've already judged. Untag an asset in Immich to send it back into the pool.
 - The winner becomes the Immich **stack primary**.
 - For video clusters you can mark clips for a **reel**: focull losslessly concatenates them with ffmpeg (stream copy — no re-encode, no quality loss), uploads the stitched video to Immich, and stacks the source clips beneath it. Mixed-format clips are refused rather than silently transcoded.

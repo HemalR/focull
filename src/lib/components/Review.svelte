@@ -72,11 +72,23 @@
 		reel: 'reel'
 	};
 
+	/** Multi-group champions toggle alive ↔ culled; everything else runs the fate cycle. */
+	const isMultiChampion = (thumb: Thumb): boolean =>
+		(session.groups[thumb.gi]?.assets.length ?? 0) > 1 &&
+		thumb.ai === session.states[thumb.gi]?.championIdx;
+
 	function cycle(thumb: Thumb) {
-		const allowReel = session.groups[thumb.gi]?.kind === 'video' && stitchAvailable;
-		const next = session.cycleFate(thumb.gi, thumb.ai, allowReel);
-		if (next === null) return;
-		notify(`${thumb.asset.originalFileName} → ${FATE_LABEL[next]}`);
+		const group = session.groups[thumb.gi];
+		if (!group) return;
+		const name = thumb.asset.originalFileName;
+		if (isMultiChampion(thumb)) {
+			const culled = session.toggleChampionCull(thumb.gi);
+			notify(culled ? `${name} → cull pile` : `${name} restored as winner`);
+		} else {
+			const next = session.cycleFate(thumb.gi, thumb.ai, group.kind === 'video' && stitchAvailable);
+			if (next === null) return;
+			notify(`${name} → ${FATE_LABEL[next]}`);
+		}
 		onChanged();
 	}
 
@@ -103,32 +115,22 @@
 </script>
 
 {#snippet mini(thumb: Thumb, extra?: string)}
-	{#if thumb.editable}
-		<button
-			type="button"
-			class="thumb editable"
-			title="{thumb.asset.originalFileName} — click to change its fate"
-			onclick={() => cycle(thumb)}
-		>
-			<img
-				src={thumbnailUrl(thumb.asset.id)}
-				alt={thumb.asset.originalFileName}
-				loading="lazy"
-				style={thumbhashStyle(thumb.asset)}
-			/>
-			{#if extra}<span class="dur mono">{extra}</span>{/if}
-		</button>
-	{:else}
-		<span class="thumb" title="{thumb.asset.originalFileName} — the winner">
-			<img
-				src={thumbnailUrl(thumb.asset.id)}
-				alt={thumb.asset.originalFileName}
-				loading="lazy"
-				style={thumbhashStyle(thumb.asset)}
-			/>
-			{#if extra}<span class="dur mono">{extra}</span>{/if}
-		</span>
-	{/if}
+	<button
+		type="button"
+		class="thumb editable"
+		title="{thumb.asset.originalFileName} — {thumb.editable
+			? 'click to change its fate'
+			: 'the winner · click to cull it too'}"
+		onclick={() => cycle(thumb)}
+	>
+		<img
+			src={thumbnailUrl(thumb.asset.id)}
+			alt={thumb.asset.originalFileName}
+			loading="lazy"
+			style={thumbhashStyle(thumb.asset)}
+		/>
+		{#if extra}<span class="dur mono">{extra}</span>{/if}
+	</button>
 {/snippet}
 
 <div class="review">

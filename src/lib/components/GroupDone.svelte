@@ -5,11 +5,20 @@
 	import { durationMs, fmtDuration, plural } from '$lib/format';
 	import { session } from '$lib/session.svelte';
 
-	let { last, onNext }: { last: boolean; onNext: () => void } = $props();
+	interface Props {
+		last: boolean;
+		notify: (msg: string) => void;
+		onNext: () => void;
+		/** Undo re-opened the duel (queue no longer empty) — back to battle. */
+		onReopen: () => void;
+	}
+
+	let { last, notify, onNext, onReopen }: Props = $props();
 
 	const group = $derived(session.group);
 	const gstate = $derived(session.current);
 	const winner = $derived(group && gstate ? group.assets[gstate.championIdx] : undefined);
+	const winnerCulled = $derived(gstate ? gstate.fates[gstate.championIdx] === 'rejected' : false);
 
 	const fates = $derived(gstate ? Object.values(gstate.fates) : []);
 	const culled = $derived(fates.filter((f) => f === 'rejected').length);
@@ -17,29 +26,55 @@
 
 	const reelAssets = $derived(
 		group?.kind === 'video' && gstate
-			? group.assets.filter((_, i) => gstate.fates[i] === 'reel' || i === gstate.championIdx)
+			? group.assets.filter(
+					(_, i) =>
+						gstate.fates[i] === 'reel' ||
+						(i === gstate.championIdx && gstate.fates[i] === undefined)
+				)
 			: []
 	);
 	const reelTotal = $derived(reelAssets.reduce((sum, a) => sum + durationMs(a.duration), 0));
 
 	const culledLine = $derived.by(() => {
 		const { rejectAction, tagName } = session.settings;
-		if (rejectAction === 'tag') return `will be tagged #${tagName} and stacked behind the winner`;
 		if (rejectAction === 'archive') return 'will be archived';
-		return 'will be moved to Immich trash';
+		if (rejectAction === 'trash') return 'will be moved to Immich trash';
+		return winnerCulled
+			? `will be tagged #${tagName}` // nothing survived — nothing to stack behind
+			: `will be tagged #${tagName} and stacked behind their keepers`;
 	});
 
+	function cullWinner() {
+		if (!winner || winnerCulled) return;
+		session.cullChampion();
+		notify(`${winner.originalFileName} → cull pile`);
+	}
+
+	function undo() {
+		if (!session.undo()) {
+			notify('nothing to undo');
+			return;
+		}
+		notify('undone');
+		if ((session.current?.queue.length ?? 0) > 0) onReopen();
+	}
+
 	createHotkey('Enter', () => onNext(), { conflictBehavior: 'allow' });
+	createHotkey('X', cullWinner, () => ({ enabled: !winnerCulled, conflictBehavior: 'allow' }));
+	createHotkey('U', undo, { conflictBehavior: 'allow' });
 </script>
 
 <div class="overlay">
 	<div class="card done">
-		<span class="label">last one standing</span>
+		<span class={['label', winnerCulled && 'gone']}>
+			{winnerCulled ? 'no survivors' : 'last one standing'}
+		</span>
 		{#if winner}
-			<span class="stack-thumb">
+			<span class={['stack-thumb', winnerCulled && 'culled']}>
 				<img src={thumbnailUrl(winner.id)} alt={winner.originalFileName} style={thumbhashStyle(winner)} />
+				{#if winnerCulled}<span class="strike mono">✕</span>{/if}
 			</span>
-			<span class="mono name">{winner.originalFileName}</span>
+			<span class={['mono', 'name', winnerCulled && 'struck']}>{winner.originalFileName}</span>
 		{/if}
 		<ul class="mono">
 			{#if culled > 0}
@@ -58,6 +93,14 @@
 		<button type="button" class="btn" onclick={onNext}>
 			{last ? 'review' : 'next group'} ↵
 		</button>
+		<span class="chips mono">
+			{#if !winnerCulled}
+				<button type="button" class="chip" onclick={cullWinner}>
+					<kbd>X</kbd> cull this one too
+				</button>
+			{/if}
+			<button type="button" class="chip" onclick={undo}><kbd>U</kbd> undo</button>
+		</span>
 	</div>
 </div>
 
@@ -78,6 +121,10 @@
 		gap: 14px;
 		padding: 28px 36px;
 		animation: rise 160ms ease-out;
+	}
+
+	.gone {
+		color: var(--rej);
 	}
 
 	.stack-thumb {
@@ -116,8 +163,28 @@
 		z-index: 1;
 	}
 
+	.stack-thumb.culled img {
+		border-color: var(--rej);
+		opacity: 0.35;
+	}
+
+	.strike {
+		position: absolute;
+		inset: 0;
+		z-index: 2;
+		display: grid;
+		place-items: center;
+		font-size: 40px;
+		color: var(--rej);
+	}
+
 	.name {
 		color: var(--ink);
+	}
+
+	.name.struck {
+		text-decoration: line-through;
+		color: var(--mut);
 	}
 
 	ul {
@@ -141,6 +208,26 @@
 
 	.reel {
 		color: var(--reel);
+	}
+
+	.chips {
+		display: flex;
+		gap: 16px;
+	}
+
+	.chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		font-family: var(--mono);
+		font-size: 11px;
+		color: var(--mut);
+		padding: 2px 4px;
+		border-radius: 4px;
+	}
+
+	.chip:hover {
+		color: var(--ink);
 	}
 
 	@keyframes rise {

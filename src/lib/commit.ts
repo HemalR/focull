@@ -44,14 +44,12 @@ export function buildPlan(
 		if (state.queue.length > 0) return; // group not finished — leave it untouched
 		plan.reviewedIds.push(...group.assets.map((a) => a.id));
 
-		const byFate = (fate: string) =>
-			group.assets.filter((_, ai) => state.fates[ai] === fate).map((a) => a.id);
-		const rejects = byFate('rejected');
+		const rejectIdxs = group.assets.map((_, ai) => ai).filter((ai) => state.fates[ai] === 'rejected');
+		const rejects = rejectIdxs.map((ai) => group.assets[ai].id);
 		plan.rejectIds.push(...rejects);
 
-		// In a culled single-asset group the "champion" is itself rejected — no winner, no stack.
+		// A culled champion (all-culled group, or "cull this one too") means no winner.
 		const winnerRejected = state.fates[state.championIdx] === 'rejected';
-		const winner = group.assets[state.championIdx].id;
 		const reelSources =
 			group.kind === 'video'
 				? group.assets
@@ -62,14 +60,26 @@ export function buildPlan(
 				: [];
 
 		if (reelSources.length >= 2) {
+			// The stitched video represents the whole event; every reject stacks beneath it.
 			const start = new Date(Math.min(...group.assets.map(takenAt)));
 			plan.reels.push({
 				assetIds: reelSources,
 				stackWith: [...reelSources, ...rejects],
 				filename: `focull-${start.toISOString().slice(0, 19).replaceAll(':', '-')}.mp4`
 			});
-		} else if (rejects.length > 0 && !winnerRejected) {
-			plan.stacks.push([winner, ...rejects]);
+		} else {
+			// Per-reference stacking: each reject goes behind the keeper it actually lost to.
+			const byTarget = new Map<number, string[]>();
+			for (const ai of rejectIdxs) {
+				const target = resolveStackTarget(ai, group, state);
+				if (target !== null) {
+					byTarget.set(target, [...(byTarget.get(target) ?? []), group.assets[ai].id]);
+				}
+				// Unresolvable (no surviving keeper) → tagged but unstacked.
+			}
+			for (const [target, ids] of byTarget) {
+				plan.stacks.push([group.assets[target].id, ...ids]);
+			}
 		}
 	});
 
@@ -80,6 +90,31 @@ export function buildPlan(
 		if (assetIds.length > 0) plan.albums.push({ ...staged, assetIds });
 	}
 	return plan;
+}
+
+const survives = (ai: number, state: GroupState): boolean =>
+	state.fates[ai] === 'kept' ||
+	state.fates[ai] === 'reel' ||
+	(ai === state.championIdx && state.fates[ai] === undefined);
+
+/**
+ * Walk a reject's lostTo chain to a surviving keeper (a dethroned champion may itself be
+ * culled). Dead ends fall back to the latest surviving keeper in the group, or null when
+ * nothing survived — such rejects are tagged but not stacked.
+ */
+function resolveStackTarget(rejectIdx: number, group: CullGroup, state: GroupState): number | null {
+	const lostTo = state.lostTo ?? {};
+	const seen = new Set<number>();
+	let ai: number | undefined = lostTo[rejectIdx] ?? (survives(state.championIdx, state) ? state.championIdx : undefined);
+	while (ai !== undefined && !seen.has(ai)) {
+		if (survives(ai, state)) return ai;
+		seen.add(ai);
+		ai = lostTo[ai];
+	}
+	for (let i = group.assets.length - 1; i >= 0; i--) {
+		if (i !== rejectIdx && survives(i, state)) return i;
+	}
+	return null;
 }
 
 export interface StitchResponse {

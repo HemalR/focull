@@ -418,7 +418,12 @@
 		onOverlay={(open) => (battleOverlay = open)}
 	/>
 	{#if phase === 'group-done'}
-		<GroupDone last={session.gi + 1 >= session.groups.length} onNext={advance} />
+		<GroupDone
+			last={!session.states.some((_, i) => i > session.gi && session.isPending(i))}
+			{notify}
+			onNext={advance}
+			onReopen={() => (phase = 'battle')}
+		/>
 	{/if}
 {:else if phase === 'review' && plan}
 	<Review
