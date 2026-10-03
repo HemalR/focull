@@ -4,7 +4,9 @@
 
 ## How it works
 
-focull detects bursts and event clusters in your library (time-window grouping), then runs each group as a **battle royale**: the current best photo — the *champion* — sits large on the left, each remaining shot appears as a *challenger* on the right, and one keystroke decides every duel. The last one standing wins.
+focull groups your library into scenes (photos taken within a few minutes of each other) and walks each scene as a stream of duels: the current best photo — the *champion* — sits large on the left, each next shot appears as a *challenger* on the right, and one keystroke decides every duel. Keep a decent shot and a better one turns up two frames later? It just takes the crown — no hunting back to delete the first.
+
+Open the app and you land straight in a **random trip**: the scene of a random photo you've never judged, plus the few days after it. No picking, just culling — and a trip down memory lane.
 
 Nothing touches your library until you review and **commit**, at which point focull writes the results back to Immich:
 
@@ -19,8 +21,7 @@ Nothing touches your library until you review and **commit**, at which point foc
 |---|---|
 | `←` (or click champion) | Champion stays — challenger is culled |
 | `→` (or click challenger) | Challenger wins — takes the crown, old champion is culled |
-| `Shift+→` | Challenger takes the crown — old champion survives as a keeper |
-| `B` | Both survive (two genuinely different keepers in one burst) |
+| `B` | Keep both — the challenger becomes the one to beat for the shots that follow |
 | `S` | Add clip to the stitch reel (video groups) |
 | `A` | Stage the champion for an album (existing or created on the spot; applies at commit) |
 | `G` | Skip this group — it stays unreviewed for a later session |
@@ -28,7 +29,7 @@ Nothing touches your library until you review and **commit**, at which point foc
 | `U` | Undo last decision |
 | `Z` | Full-resolution zoom on both panes with synced panning (sharpness duel) |
 | `Space` / `X` | Keep / cull (single-asset groups) |
-| `Enter` | Advance (next group, review, commit) |
+| `Enter` | Advance (next group, review, commit; another trip when done) |
 | `?` | Keyboard cheatsheet |
 | `Esc` | Back to the session picker |
 
@@ -70,7 +71,7 @@ IMMICH_URL=http://your-immich:2283 npm run dev
 
 ## Sessions
 
-Start from **unreviewed** (everything you've never judged — the reviewed tag is the source of truth, so this works across browsers and devices), **new since your last cull** (a faster date-based path), an **album**, a **date range**, or **duplicates** (Immich's visual duplicate groups, with the suggested keeper opening as champion). Burst detection uses an 8-second gap for photos and a 10-minute gap between clips for videos — both configurable in settings (`,`). Progress is saved locally as you go; an interrupted session offers to resume.
+The app opens on a **random trip** (`T` in the picker for another). Or start from **unreviewed** (everything you've never judged — the reviewed tag is the source of truth, so this works across browsers and devices), **new since your last cull** (a faster date-based path), an **album**, a **date range**, or **duplicates** (Immich's visual duplicate groups, with the suggested keeper opening as champion). Photos chain into a scene while consecutive shots are within 5 minutes of each other; scenes longer than 40 photos split at their widest gaps. Videos cluster separately (10-minute gap between clips), so a clip never breaks up a run of photos. Both gaps are configurable in settings (`,`). The grouping is generous on purpose: an unrelated photo in a scene costs one `B`, while a missed pairing costs the comparison. Progress is saved locally as you go; an interrupted session offers to resume.
 
 ## Safety model
 
@@ -88,7 +89,7 @@ focull is versioned with semver; tagged releases publish multi-arch images to GH
 ## Roadmap
 
 - User-remappable keybindings (TanStack Hotkeys ships a recorder — the plumbing is there)
-- Visual-similarity grouping via Immich smart search, beyond time windows
+- Visual similarity to pick the most relevant earlier keeper as the one to beat (a scene that returns to an earlier subject)
 - `J`/`K`/`L` shuttle and frame stepping for video duels
 - Rating (`1–5`) passthrough to Immich's rating field
 - Commit receipts with one-click undo of a whole commit

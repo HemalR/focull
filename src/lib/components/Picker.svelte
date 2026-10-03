@@ -25,6 +25,8 @@
 		showUpdateBanner: boolean;
 		onDismissUpdate: () => void;
 		onStart: (source: SessionSource) => void;
+		/** Random trip down memory lane — the source the app opens on. */
+		onTrip: () => void;
 		onLogout: () => void;
 		onHelp: () => void;
 	}
@@ -39,6 +41,7 @@
 		showUpdateBanner,
 		onDismissUpdate,
 		onStart,
+		onTrip,
 		onLogout,
 		onHelp
 	}: Props = $props();
@@ -95,6 +98,7 @@
 	}
 
 	const closed = $derived(!settingsOpen);
+	createHotkey('T', () => onTrip(), () => ({ enabled: closed }));
 	createHotkey('1', () => onStart({ kind: 'unreviewed' }), () => ({ enabled: closed }));
 	createHotkey('2', () => onStart({ kind: 'new', takenAfter: since }), () => ({ enabled: closed }));
 	createHotkey('3', () => void openAlbums(), () => ({ enabled: closed }));
@@ -154,6 +158,12 @@
 		<h1 class="label">pick a session source</h1>
 
 		<div class="sources">
+			<button type="button" class={['card', 'source']} onclick={onTrip}>
+				<kbd>T</kbd>
+				<strong>Random trip</strong>
+				<span class="muted mono">a few random days of unreviewed photos — relive and cull</span>
+			</button>
+
 			<button type="button" class={['card', 'source']} onclick={() => onStart({ kind: 'unreviewed' })}>
 				<kbd>1</kbd>
 				<strong>Unreviewed</strong>
@@ -253,6 +263,7 @@
 
 	<KeyLegend
 		items={[
+			{ key: 'T', label: 'random trip', action: onTrip },
 			{ key: '1', label: 'unreviewed', action: () => onStart({ kind: 'unreviewed' }) },
 			{ key: '2', label: 'new since last cull', action: () => onStart({ kind: 'new', takenAfter: since }) },
 			{ key: '3', label: 'album', action: () => void openAlbums() },

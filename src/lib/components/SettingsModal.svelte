@@ -45,8 +45,8 @@
 		</p>
 
 		<label class="row">
-			<span class="label">photo burst window (seconds)</span>
-			<input type="number" min="1" bind:value={session.settings.photoWindowSeconds} onchange={save} />
+			<span class="label">photo scene gap (seconds)</span>
+			<input type="number" min="1" bind:value={session.settings.sceneGapSeconds} onchange={save} />
 		</label>
 
 		<label class="row">

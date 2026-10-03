@@ -82,19 +82,18 @@
 		}
 	});
 
-	function decide(action: 'defend' | 'dethrone' | 'both' | 'reel' | 'promoteKeep') {
+	function decide(action: 'defend' | 'dethrone' | 'keepBoth' | 'reel') {
 		if (!challenger || challengerIdx === undefined) return;
 		const name = challenger.originalFileName;
-		const crowning = action === 'dethrone' || action === 'promoteKeep';
+		const crowning = action === 'dethrone' || action === 'keepBoth';
 		recent.push(crowning && gstate ? gstate.championIdx : challengerIdx);
 		session[action]();
 		notify(
 			{
 				defend: `${name} → cull pile`,
 				dethrone: `${name} takes the crown`,
-				both: `${name} survives`,
-				reel: `${name} → reel`,
-				promoteKeep: `${name} takes the crown — old champion kept`
+				keepBoth: `both kept — ${name} is the one to beat`,
+				reel: `${name} → reel`
 			}[action]
 		);
 		if (session.current?.queue.length === 0) onGroupDone();
@@ -121,8 +120,7 @@
 	const duel = $derived(keysActive && !isSingle && !!challenger);
 	createHotkey('ArrowLeft', () => decide('defend'), () => ({ enabled: duel }));
 	createHotkey('ArrowRight', () => decide('dethrone'), () => ({ enabled: duel }));
-	createHotkey('Shift+ArrowRight', () => decide('promoteKeep'), () => ({ enabled: duel }));
-	createHotkey('B', () => decide('both'), () => ({ enabled: duel }));
+	createHotkey('B', () => decide('keepBoth'), () => ({ enabled: duel }));
 	createHotkey('S', () => decide('reel'), () => ({ enabled: duel && canReel }));
 	createHotkey('Space', () => decideSingle(true), () => ({ enabled: keysActive && isSingle }));
 	createHotkey('X', () => decideSingle(false), () => ({ enabled: keysActive && isSingle }));
@@ -157,8 +155,7 @@
 		return [
 			{ key: '←', label: 'champion stays', action: () => decide('defend') },
 			{ key: '→', label: 'challenger wins', action: () => decide('dethrone') },
-			{ key: '⇧→', label: 'crown, keep old champ', action: () => decide('promoteKeep') },
-			{ key: 'B', label: 'both survive', action: () => decide('both') },
+			{ key: 'B', label: 'keep both — new one to beat', action: () => decide('keepBoth') },
 			...(canReel ? [{ key: 'S', label: 'add to reel', action: () => decide('reel') }] : []),
 			...mute,
 			...shared

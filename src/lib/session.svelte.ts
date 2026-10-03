@@ -173,11 +173,6 @@ class CullSession {
 		this.#decideChallenger('rejected');
 	}
 
-	/** Both survive: challenger is kept alongside the champion. */
-	both(): void {
-		this.#decideChallenger('kept');
-	}
-
 	/** Video groups only: challenger becomes a reel clip. */
 	reel(): void {
 		this.#decideChallenger('reel');
@@ -188,8 +183,11 @@ class CullSession {
 		this.#crown('rejected');
 	}
 
-	/** Challenger takes the crown but the old champion survives as kept. */
-	promoteKeep(): void {
+	/**
+	 * Both survive, and the challenger becomes the one to beat: groups are scenes walked as a
+	 * stream, so the newest keeper is the most relevant reference for the shots that follow.
+	 */
+	keepBoth(): void {
 		this.#crown('kept');
 	}
 

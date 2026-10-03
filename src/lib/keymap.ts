@@ -19,8 +19,7 @@ export const KEYMAP: KeyGroup[] = [
 		entries: [
 			{ keys: '←', label: 'champion stays — challenger culled (or click champion)' },
 			{ keys: '→', label: 'challenger wins — champion culled (or click challenger)' },
-			{ keys: '⇧→', label: 'challenger crowned — old champion kept' },
-			{ keys: 'B', label: 'both survive' },
+			{ keys: 'B', label: 'keep both — challenger becomes the one to beat' },
 			{ keys: 'A', label: 'album palette — stage the champion, applied at commit' },
 			{ keys: 'G', label: 'skip group — stays unreviewed' },
 			{ keys: 'U', label: 'undo last decision' },
@@ -60,12 +59,13 @@ export const KEYMAP: KeyGroup[] = [
 	{
 		title: 'global',
 		entries: [
+			{ keys: 'T', label: 'picker: random trip (also what the app opens on)' },
 			{ keys: '1–5', label: 'picker: choose session source' },
 			{ keys: ',', label: 'picker: settings' },
 			{ keys: '↵', label: 'confirm / next group / resume' },
 			{ keys: 'esc', label: 'back to picker · close overlays' },
 			{ keys: '?', label: 'this cheatsheet' },
-			{ keys: 'R', label: 'done screen: new session' }
+			{ keys: '↵ / R', label: 'done screen: another trip / pick a session' }
 		]
 	}
 ];

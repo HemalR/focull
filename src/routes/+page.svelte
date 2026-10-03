@@ -7,6 +7,7 @@
 		fetchSessionAssets,
 		getAuthStatus,
 		getServerInfo,
+		pickTrip,
 		type AuthUser,
 		type ServerInfo
 	} from '$lib/api';
@@ -16,7 +17,7 @@
 	import { clearSession, loadSession, saveSession } from '$lib/persist';
 	import { session, type SessionData, type Tally } from '$lib/session.svelte';
 	import { DEFAULT_SETTINGS, type SessionSource, type Settings } from '$lib/types';
-	import { plural } from '$lib/format';
+	import { localDate, plural } from '$lib/format';
 	import Battle from '$lib/components/Battle.svelte';
 	import Cheatsheet from '$lib/components/Cheatsheet.svelte';
 	import GroupDone from '$lib/components/GroupDone.svelte';
@@ -67,9 +68,13 @@
 	let saved = $state.raw<SessionData | null>(null);
 
 	let fetchCount = $state(0);
-	let fetchSummary = $state<{ assets: number; groups: number } | null>(null);
+	let fetchSummary = $state<{ assets: number; groups: number; tripDate?: string } | null>(null);
 	let fetchEmpty = $state(false);
 	let fetchKind = $state<SessionSource['kind'] | null>(null);
+	const emptyMessages: Partial<Record<SessionSource['kind'], string>> = {
+		duplicates: 'No duplicates found — your library is already tidy.',
+		trip: 'Everything has been reviewed — no memories left to cull.'
+	};
 
 	let plan = $state.raw<CommitPlan | null>(null);
 	let commitLog = $state<string[]>([]);
@@ -108,8 +113,7 @@
 			}
 			user = status.user ?? null;
 			[serverInfo, updateInfo] = await Promise.all([getServerInfo(), fetchUpdateInfo()]);
-			saved = (await loadSession()) ?? null;
-			phase = saved ? 'resume' : 'picker';
+			await afterLogin();
 		} catch (e) {
 			loadError = e instanceof Error ? e.message : 'could not reach the server';
 		}
@@ -124,6 +128,13 @@
 		}
 	}
 
+	/** Offer to resume a saved session; otherwise drop straight into a random trip. */
+	async function afterLogin() {
+		saved = (await loadSession()) ?? null;
+		if (saved) phase = 'resume';
+		else await startTrip();
+	}
+
 	// Persist after every battle mutation so a crashed tab can resume.
 	$effect(() => {
 		void session.rev;
@@ -131,26 +142,52 @@
 		if (data && (phase === 'battle' || phase === 'group-done')) void saveSession(data);
 	});
 
-	async function startSession(source: SessionSource) {
+	function resetFetch(kind: SessionSource['kind']) {
 		phase = 'fetching';
 		fetchCount = 0;
 		fetchSummary = null;
 		fetchEmpty = false;
-		fetchKind = source.kind;
+		fetchKind = kind;
+	}
+
+	/** A trip down memory lane: a random never-judged photo's scene and the days after it. */
+	async function startTrip() {
+		resetFetch('trip');
 		try {
-			const groups =
+			const trip = await pickTrip(session.settings);
+			if (trip) await startSession(trip);
+			else fetchEmpty = true;
+		} catch (e) {
+			notify(e instanceof Error ? e.message : 'could not pick a trip', true);
+			phase = 'picker';
+		}
+	}
+
+	async function startSession(source: SessionSource) {
+		resetFetch(source.kind);
+		try {
+			let groups =
 				source.kind === 'duplicates'
 					? await fetchDuplicateGroups(session.settings)
 					: groupAssets(
 							await fetchSessionAssets(source, session.settings, (n) => (fetchCount = n)),
 							session.settings
 						);
+			if (source.kind === 'trip') {
+				// The lead-in only exists to fetch the anchor's whole scene — open on that scene.
+				const at = groups.findIndex((g) => g.assets.some((a) => a.id === source.anchorId));
+				groups = groups.slice(Math.max(at, 0));
+			}
 			if (groups.length === 0) {
 				fetchEmpty = true;
 				return;
 			}
 			const assetCount = groups.reduce((sum, g) => sum + g.assets.length, 0);
-			fetchSummary = { assets: assetCount, groups: groups.length };
+			fetchSummary = {
+				assets: assetCount,
+				groups: groups.length,
+				tripDate: source.kind === 'trip' ? localDate(groups[0].assets[0].localDateTime) : undefined
+			};
 			session.start(groups, source, session.settings);
 			setTimeout(() => {
 				if (phase === 'fetching') phase = 'battle';
@@ -220,8 +257,10 @@
 		commitFailed = false;
 		try {
 			await commitPlan(plan, session.settings, (line) => commitLog.push(line));
+			// Only ever advance: trips and ranges into the past must not rewind "new since last cull".
 			const newest = Math.max(...session.groups.flatMap((g) => g.assets.map(takenAt)));
-			if (Number.isFinite(newest)) {
+			const lastCull = Date.parse(localStorage.getItem('focull.lastCull') ?? '') || 0;
+			if (Number.isFinite(newest) && newest > lastCull) {
 				localStorage.setItem('focull.lastCull', new Date(newest).toISOString());
 			}
 			doneSummary = { ...session.tally };
@@ -250,6 +289,11 @@
 	function newSession() {
 		session.reset();
 		phase = 'picker';
+	}
+
+	function newTrip() {
+		session.reset();
+		void startTrip();
 	}
 
 	function escapeOut() {
@@ -296,11 +340,13 @@
 			if (phase === 'resume') resume();
 			else if (phase === 'fetching') newSession();
 			else if (phase === 'committing') void commit();
+			else if (phase === 'done') newTrip();
 		},
 		() => ({
 			conflictBehavior: 'allow',
 			enabled:
 				phase === 'resume' ||
+				phase === 'done' ||
 				(phase === 'fetching' && fetchEmpty) ||
 				(phase === 'committing' && commitFailed)
 		})
@@ -340,10 +386,7 @@
 			user = u;
 			void getServerInfo().then((info) => (serverInfo = info));
 			void fetchUpdateInfo().then((info) => (updateInfo = info));
-			void loadSession().then((s) => {
-				saved = s ?? null;
-				phase = saved ? 'resume' : 'picker';
-			});
+			void afterLogin();
 		}}
 	/>
 {:else if phase === 'resume'}
@@ -380,6 +423,7 @@
 			}
 		}}
 		onStart={(source) => void startSession(source)}
+		onTrip={() => void startTrip()}
 		onLogout={() => {
 			user = null;
 			phase = 'login';
@@ -392,17 +436,20 @@
 			<span class="brand">focull<span class="dot">.</span></span>
 			{#if fetchEmpty}
 				<p class="mono">
-					{fetchKind === 'duplicates'
-						? 'No duplicates found — your library is already tidy.'
-						: 'No assets match — nothing to cull. Nice and tidy.'}
+					{(fetchKind && emptyMessages[fetchKind]) ?? 'No assets match — nothing to cull. Nice and tidy.'}
 				</p>
 				<button type="button" class="btn" onclick={newSession}>back to picker ↵</button>
 			{:else if fetchSummary}
+				{#if fetchSummary.tripDate}
+					<p class="mono trip">a trip back to {fetchSummary.tripDate}</p>
+				{/if}
 				<p class="mono summary">
 					{plural(fetchSummary.assets, 'asset')} → {plural(fetchSummary.groups, 'group')}
 				</p>
 			{:else}
-				<p class="muted mono">fetching assets… {fetchCount > 0 ? fetchCount : ''}</p>
+				<p class="muted mono">
+					{fetchKind === 'trip' && fetchCount === 0 ? 'picking a memory…' : `fetching assets… ${fetchCount || ''}`}
+				</p>
 			{/if}
 		</div>
 	</div>
@@ -477,7 +524,10 @@
 			<ul class="log mono">
 				{#each commitLog as line, i (i)}<li>{line}</li>{/each}
 			</ul>
-			<button type="button" class="ghost mono" onclick={newSession}><kbd>R</kbd> new session</button>
+			<div class="row-btns">
+				<button type="button" class="btn" onclick={newTrip}>another trip ↵</button>
+				<button type="button" class="ghost mono" onclick={newSession}><kbd>R</kbd> pick a session</button>
+			</div>
 		</div>
 	</div>
 {/if}
@@ -530,6 +580,11 @@
 	.summary {
 		font-size: 15px;
 		color: var(--amber);
+	}
+
+	.trip {
+		font-size: 15px;
+		margin: 0;
 	}
 
 	.row-btns {

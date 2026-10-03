@@ -2,7 +2,7 @@ import type { AssetResponseDto } from '@immich/sdk';
 
 export type GroupKind = 'photo' | 'video';
 
-/** A burst/cluster of assets detected by time-window grouping. Single-asset groups get a quick keep/cull pass instead of a battle. */
+/** A scene/event of assets detected by time-gap grouping. Single-asset groups get a quick keep/cull pass instead of a battle. */
 export interface CullGroup {
 	id: string;
 	kind: GroupKind;
@@ -31,8 +31,8 @@ export interface Settings {
 	tagName: string;
 	/** Tag applied to every asset a committed session processed — the "already judged" marker. */
 	reviewedTagName: string;
-	/** Max gap between consecutive photos to count as one burst. */
-	photoWindowSeconds: number;
+	/** Max gap between consecutive photos to count as one scene. */
+	sceneGapSeconds: number;
 	/** Max gap between end of one clip and start of the next to count as one event. */
 	videoWindowSeconds: number;
 	/** Magnifier loupe following the cursor over battle panes (outside Z-zoom). */
@@ -43,7 +43,7 @@ export const DEFAULT_SETTINGS: Settings = {
 	rejectAction: 'tag',
 	tagName: 'focull/culled',
 	reviewedTagName: 'focull/reviewed',
-	photoWindowSeconds: 8,
+	sceneGapSeconds: 300,
 	videoWindowSeconds: 600,
 	hoverLoupe: true
 };
@@ -60,4 +60,6 @@ export type SessionSource =
 	| { kind: 'duplicates' }
 	| { kind: 'new'; takenAfter: string }
 	| { kind: 'album'; albumId: string; albumName: string }
-	| { kind: 'range'; takenAfter: string; takenBefore: string };
+	| { kind: 'range'; takenAfter: string; takenBefore: string }
+	/** A few random days of library, opening on the scene of a random never-judged photo (the anchor). */
+	| { kind: 'trip'; anchorId: string; takenAfter: string; takenBefore: string };

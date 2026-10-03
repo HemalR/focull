@@ -6,6 +6,7 @@ import {
 	getAssetDuplicates,
 	getServerVersion,
 	searchAssets,
+	searchRandom,
 	type AssetResponseDto,
 	type MetadataSearchDto
 } from '@immich/sdk';
@@ -104,15 +105,45 @@ export async function fetchSessionAssets(
 		size: 1000
 	};
 	if (source.kind === 'album') base.albumIds = [source.albumId];
-	else if (source.kind === 'new' || source.kind === 'range') {
-		base.takenAfter = source.takenAfter;
-		if (source.kind === 'range') base.takenBefore = source.takenBefore;
-	}
+	if ('takenAfter' in source) base.takenAfter = source.takenAfter;
+	if ('takenBefore' in source) base.takenBefore = source.takenBefore;
 
 	const judged = await fetchTaggedAssetIds([settings.reviewedTagName, settings.tagName]);
 	let count = 0;
 	const all = await searchPaged(base, (items) => onProgress?.((count += items.length)));
 	return all.filter((a) => !a.isTrashed && !a.stack && !judged.has(a.id));
+}
+
+/** Lead-in before a trip's anchor, so the anchor's whole scene is fetched; and the days that follow it. */
+const TRIP_LEAD_MS = 12 * 3_600_000;
+const TRIP_DAYS = 3;
+
+/**
+ * Frame a trip around a random never-judged photo. Random picks land in photo-dense stretches
+ * more often, which is where culling pays off. Null when a sample turns up nothing unjudged.
+ */
+export async function pickTrip(settings: Settings): Promise<Extract<SessionSource, { kind: 'trip' }> | null> {
+	const [sample, judged] = await Promise.all([
+		searchRandom({
+			randomSearchDto: {
+				size: 100,
+				type: AssetTypeEnum.Image,
+				visibility: AssetVisibility.Timeline,
+				withStacked: false,
+				withExif: true
+			}
+		}),
+		fetchTaggedAssetIds([settings.reviewedTagName, settings.tagName])
+	]);
+	const anchor = sample.find((a) => !a.isTrashed && !a.stack && !judged.has(a.id));
+	if (!anchor) return null;
+	const t = takenAt(anchor);
+	return {
+		kind: 'trip',
+		anchorId: anchor.id,
+		takenAfter: new Date(t - TRIP_LEAD_MS).toISOString(),
+		takenBefore: new Date(t + TRIP_DAYS * 86_400_000).toISOString()
+	};
 }
 
 /**
