@@ -1,173 +1,99 @@
 <script lang="ts">
-	import { AssetTypeEnum } from '@immich/sdk';
 	import { createHotkey } from '@tanstack/svelte-hotkeys';
-	import { previewUrl } from '$lib/immich';
-	import { prefetchImage } from '$lib/prefetch';
-	import { localDate, plural } from '$lib/format';
+	import { Duel, type DuelAction, type DuelProps } from '$lib/duel.svelte';
 	import { session } from '$lib/session.svelte';
 	import AlbumPalette from './AlbumPalette.svelte';
 	import Pane from './Pane.svelte';
 	import Carousel from './Carousel.svelte';
 	import KeyLegend, { type LegendItem } from './KeyLegend.svelte';
 
-	interface Props {
-		/** false while the group-done overlay is up, so battle keys go quiet. */
-		active: boolean;
-		stitchAvailable: boolean;
-		notify: (msg: string, err?: boolean) => void;
-		onGroupDone: () => void;
-		onSingleDone: () => void;
-		/** Group skipped — advance past it. */
-		onSkipped: () => void;
-		onHelp: () => void;
-		/** The album palette opened/closed — the page gates its Escape handler on this. */
-		onOverlay: (open: boolean) => void;
-	}
-
-	let {
-		active,
-		stitchAvailable,
-		notify,
-		onGroupDone,
-		onSingleDone,
-		onSkipped,
-		onHelp,
-		onOverlay
-	}: Props = $props();
-
-	const group = $derived(session.group);
-	const gstate = $derived(session.current);
-	const isSingle = $derived((group?.assets.length ?? 0) === 1);
-	const champion = $derived(group && gstate ? group.assets[gstate.championIdx] : undefined);
-	const challengerIdx = $derived(gstate?.queue[0]);
-	const challenger = $derived(
-		group && challengerIdx !== undefined ? group.assets[challengerIdx] : undefined
-	);
-	const canReel = $derived(group?.kind === 'video' && stitchAvailable);
+	/** Keyboard-first side-by-side battle: champion pane left, challenger pane right. */
+	const props: DuelProps = $props();
+	const duel = new Duel(() => props);
 	const tally = $derived(session.tally);
 
-	const groupLabel = $derived.by(() => {
-		if (!group) return '';
-		const n = group.assets.length;
-		return `${localDate(group.assets[0].localDateTime)} · ${plural(n, group.kind)}`;
+	type Side = 'champion' | 'challenger';
+	/** Momentary full screen: the pane held up to your face while its key is down. */
+	let lifted = $state<Side | null>(null);
+	const holdUp = (key: 'ArrowUp' | 'ArrowDown', pane: Side) => {
+		createHotkey(key, () => (lifted ??= duel.isSingle ? 'champion' : pane), () => ({
+			enabled: duel.keysActive
+		}));
+		createHotkey(key, () => (lifted = null), { eventType: 'keyup', conflictBehavior: 'allow' });
+	};
+	holdUp('ArrowUp', 'challenger');
+	holdUp('ArrowDown', 'champion');
+
+	// Spatial keys: pick the pane on that side — or, while one is lifted, flip to that side.
+	const side = (pane: Side, action: DuelAction) => () => (lifted ? (lifted = pane) : duel.decide(action));
+	createHotkey('ArrowLeft', side('champion', 'defend'), () => ({ enabled: duel.dueling }));
+	createHotkey('ArrowRight', side('challenger', 'dethrone'), () => ({ enabled: duel.dueling }));
+
+	const toggleZoom = () => (duel.zoomed = !duel.zoomed);
+	/**
+	 * Shift held → magnifier loupe. Read from each event's own modifier state rather than
+	 * tracking keydown/keyup pairs: input methods can swallow a lone Shift release, and the
+	 * next mouse move then still reports the truth.
+	 */
+	let shift = $state(false);
+	const trackShift = (event: KeyboardEvent | PointerEvent) => (shift = event.shiftKey);
+	/** View props every pane shares: synced zoom/pan, the Shift loupe and one sound state. */
+	const view = $derived({
+		zoomed: duel.zoomed,
+		pan: duel.pan,
+		onpan: (pan: { x: number; y: number }) => (duel.pan = pan),
+		loupe: shift,
+		muted: duel.muted,
+		ontogglemute: () => (duel.muted = !duel.muted)
 	});
-
-	let zoomed = $state(false);
-	let pan = $state({ x: 0.5, y: 0.5 });
-	/** One shared sound state for both panes; default muted, sticky for the session. */
-	let muted = $state(true);
-	let paletteOpen = $state(false);
-	let recent: number[] = [];
-
-	function setPalette(open: boolean) {
-		paletteOpen = open;
-		onOverlay(open);
-	}
-
-	// New group: reset zoom and the recently-decided prefetch list.
-	$effect(() => {
-		void session.gi;
-		zoomed = false;
-		recent = [];
-	});
-
-	// Keep the next 6 queued previews + the last 2 decided (undo fodder) warm.
-	$effect(() => {
-		const g = session.group;
-		const s = session.current;
-		if (!g || !s) return;
-		for (const idx of [...s.queue.slice(1, 7), ...recent.slice(-2)]) {
-			const a = g.assets[idx];
-			if (a && a.type !== AssetTypeEnum.Video) prefetchImage(previewUrl(a.id));
-		}
-	});
-
-	function decide(action: 'defend' | 'dethrone' | 'keepBoth' | 'reel') {
-		if (!challenger || challengerIdx === undefined) return;
-		const name = challenger.originalFileName;
-		const crowning = action === 'dethrone' || action === 'keepBoth';
-		recent.push(crowning && gstate ? gstate.championIdx : challengerIdx);
-		session[action]();
-		notify(
-			{
-				defend: `${name} → cull pile`,
-				dethrone: `${name} takes the crown`,
-				keepBoth: `both kept — ${name} is the one to beat`,
-				reel: `${name} → reel`
-			}[action]
-		);
-		if (session.current?.queue.length === 0) onGroupDone();
-	}
-
-	function decideSingle(keep: boolean) {
-		if (!champion) return;
-		notify(keep ? `${champion.originalFileName} kept` : `${champion.originalFileName} → cull pile`);
-		session.decideSingle(keep);
-		onSingleDone();
-	}
-
-	function undo() {
-		notify(session.undo() ? 'undone' : 'nothing to undo');
-	}
-
-	function skip() {
-		session.skipCurrent();
-		notify('group skipped — stays unreviewed');
-		onSkipped();
-	}
-
-	const keysActive = $derived(active && !paletteOpen);
-	const duel = $derived(keysActive && !isSingle && !!challenger);
-	createHotkey('ArrowLeft', () => decide('defend'), () => ({ enabled: duel }));
-	createHotkey('ArrowRight', () => decide('dethrone'), () => ({ enabled: duel }));
-	createHotkey('B', () => decide('keepBoth'), () => ({ enabled: duel }));
-	createHotkey('S', () => decide('reel'), () => ({ enabled: duel && canReel }));
-	createHotkey('Space', () => decideSingle(true), () => ({ enabled: keysActive && isSingle }));
-	createHotkey('X', () => decideSingle(false), () => ({ enabled: keysActive && isSingle }));
-	createHotkey('U', undo, () => ({ enabled: keysActive }));
-	createHotkey('Z', () => (zoomed = !zoomed), () => ({ enabled: keysActive }));
-	createHotkey('G', skip, () => ({ enabled: keysActive }));
-	createHotkey('A', () => setPalette(true), () => ({ enabled: keysActive && !!champion }));
-	createHotkey('M', () => (muted = !muted), () => ({
-		enabled: keysActive && group?.kind === 'video'
-	}));
 
 	const legend = $derived.by((): LegendItem[] => {
 		const shared: LegendItem[] = [
-			{ key: 'A', label: 'album', action: () => setPalette(true) },
-			{ key: 'G', label: 'skip group — stays unreviewed', action: skip },
-			{ key: 'U', label: 'undo', action: undo },
-			{ key: 'Z', label: 'zoom', action: () => (zoomed = !zoomed) },
-			{ key: '?', label: 'shortcuts', action: onHelp }
+			{ key: 'A', label: 'album', action: () => duel.setOverlay('album') },
+			{ key: 'G', label: 'skip group — stays unreviewed', action: duel.skip },
+			{ key: 'U', label: 'undo', action: duel.undo },
+			{ key: '↑ ↓', label: 'hold — full screen' },
+			{ key: 'Z', label: 'zoom', action: toggleZoom },
+			{ key: '?', label: 'shortcuts', action: props.onHelp }
 		];
 		const mute: LegendItem[] =
-			group?.kind === 'video'
-				? [{ key: 'M', label: muted ? 'unmute' : 'mute', action: () => (muted = !muted) }]
+			duel.group?.kind === 'video'
+				? [{ key: 'M', label: duel.muted ? 'unmute' : 'mute', action: view.ontogglemute }]
 				: [];
-		if (isSingle) {
+		if (duel.isSingle) {
 			return [
-				{ key: 'space', label: 'keep', action: () => decideSingle(true) },
-				{ key: 'X', label: 'cull', action: () => decideSingle(false) },
+				{ key: 'space', label: 'keep', action: () => duel.decideSingle(true) },
+				{ key: 'X', label: 'cull', action: () => duel.decideSingle(false) },
 				...mute,
 				...shared
 			];
 		}
 		return [
-			{ key: '←', label: 'champion stays', action: () => decide('defend') },
-			{ key: '→', label: 'challenger wins', action: () => decide('dethrone') },
-			{ key: 'B', label: 'keep both — new one to beat', action: () => decide('keepBoth') },
-			...(canReel ? [{ key: 'S', label: 'add to reel', action: () => decide('reel') }] : []),
+			{ key: '←', label: 'champion stays', action: () => duel.decide('defend') },
+			{ key: '→', label: 'challenger wins', action: () => duel.decide('dethrone') },
+			{ key: 'B', label: 'keep both — new one to beat', action: () => duel.decide('keepBoth') },
+			...(duel.canReel ? [{ key: 'S', label: 'add to reel', action: () => duel.decide('reel') }] : []),
 			...mute,
 			...shared
 		];
 	});
 </script>
 
+<svelte:window
+	onkeydown={trackShift}
+	onkeyup={trackShift}
+	onpointermove={trackShift}
+	onblur={() => {
+		shift = false;
+		lifted = null;
+	}}
+/>
+
 <div class="battle">
 	<header class="topbar">
 		<span class="brand">focull<span class="dot">.</span></span>
 		<span class="mono muted">group {session.gi + 1}/{session.groups.length}</span>
-		<span class="label">{groupLabel}</span>
+		<span class="label">{duel.label}</span>
 		<span class="tallies mono">
 			<span class="t-keep" title="kept">✓ {tally.kept}</span>
 			<span class="t-rej" title="culled">✕ {tally.culled}</span>
@@ -175,51 +101,42 @@
 		</span>
 	</header>
 
-	<main class={['stage', isSingle && 'single']}>
-		{#if isSingle && champion}
+	<main class={['stage', duel.isSingle && 'single']}>
+		{#if duel.isSingle && duel.champion}
 			<Pane
-				asset={champion}
+				{...view}
+				asset={duel.champion}
 				kind="single"
-				stagedCount={session.stagedCount(champion.id)}
-				{zoomed}
-				{pan}
-				onpan={(p) => (pan = p)}
-				loupe={session.settings.hoverLoupe}
-				{muted}
-				ontogglemute={() => (muted = !muted)}
-			/>
-		{:else if champion && challenger && gstate && group}
+				lifted={lifted === 'champion'}
+				stagedCount={session.stagedCount(duel.champion.id)} />
+		{:else if duel.champion && duel.challenger && duel.state && duel.group}
 			<Pane
-				asset={champion}
+				{...view}
+				asset={duel.champion}
 				kind="champion"
-				stagedCount={session.stagedCount(champion.id)}
-				{zoomed}
-				{pan}
-				onpan={(p) => (pan = p)}
-				loupe={session.settings.hoverLoupe}
-				{muted}
-				ontogglemute={() => (muted = !muted)}
-				onpick={() => decide('defend')}
+				lifted={lifted === 'champion'}
+				stagedCount={session.stagedCount(duel.champion.id)}
+				onpick={() => duel.decide('defend')}
 				title="champion stays (defend)"
 			/>
 			<Pane
-				asset={challenger}
+				{...view}
+				asset={duel.challenger}
 				kind="challenger"
-				sub="{group.assets.length - gstate.queue.length} of {group.assets.length - 1}"
-				{zoomed}
-				{pan}
-				onpan={(p) => (pan = p)}
-				loupe={session.settings.hoverLoupe}
-				{muted}
-				ontogglemute={() => (muted = !muted)}
-				onpick={() => decide('dethrone')}
+				lifted={lifted === 'challenger'}
+				sub="{duel.group.assets.length - duel.state.queue.length} of {duel.group.assets.length - 1}"
+				onpick={() => duel.decide('dethrone')}
 				title="challenger wins (dethrone)"
 			/>
 		{/if}
 	</main>
 
-	{#if group && gstate && !isSingle}
-		<Carousel {group} state={gstate} onJump={(idx) => active && session.jumpTo(idx)} />
+	{#if duel.group && duel.state && !duel.isSingle}
+		<Carousel
+			group={duel.group}
+			state={duel.state}
+			onJump={(idx) => props.active && session.jumpTo(idx)}
+		/>
 	{/if}
 
 	<KeyLegend
@@ -228,8 +145,8 @@
 	/>
 </div>
 
-{#if paletteOpen && champion}
-	<AlbumPalette asset={champion} {notify} onClose={() => setPalette(false)} />
+{#if duel.overlay === 'album' && duel.champion}
+	<AlbumPalette asset={duel.champion} notify={props.notify} onClose={() => duel.setOverlay(null)} />
 {/if}
 
 <style>

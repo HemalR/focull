@@ -35,8 +35,6 @@ export interface Settings {
 	sceneGapSeconds: number;
 	/** Max gap between end of one clip and start of the next to count as one event. */
 	videoWindowSeconds: number;
-	/** Magnifier loupe following the cursor over battle panes (outside Z-zoom). */
-	hoverLoupe: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -44,8 +42,7 @@ export const DEFAULT_SETTINGS: Settings = {
 	tagName: 'focull/culled',
 	reviewedTagName: 'focull/reviewed',
 	sceneGapSeconds: 300,
-	videoWindowSeconds: 600,
-	hoverLoupe: true
+	videoWindowSeconds: 600
 };
 
 /** Album assignment staged mid-battle (A key), applied at commit. On-the-spot albums have no id yet. */

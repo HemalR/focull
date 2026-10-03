@@ -1,0 +1,13 @@
+{
+	"name": "focull",
+	"short_name": "focull",
+	"description": "Cull your Immich library — keep the best shot of every scene.",
+	"start_url": "/",
+	"display": "standalone",
+	"background_color": "#0f1210",
+	"theme_color": "#0f1210",
+	"icons": [
+		{ "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+		{ "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+	]
+}

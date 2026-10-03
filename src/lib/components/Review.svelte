@@ -16,9 +16,11 @@
 		/** A fate was edited — recompute the plan. */
 		onChanged: () => void;
 		onCommit: () => void;
+		/** Abandon the session, back to the picker (Esc). */
+		onExit: () => void;
 	}
 
-	let { plan, stitchAvailable, notify, onChanged, onCommit }: Props = $props();
+	let { plan, stitchAvailable, notify, onChanged, onCommit, onExit }: Props = $props();
 
 	interface Thumb {
 		asset: AssetResponseDto;
@@ -137,7 +139,7 @@
 	<header>
 		<span class="brand">focull<span class="dot">.</span></span>
 		<span class="label">review</span>
-		<span class="muted mono hint">click a thumb to change its fate</span>
+		<span class="muted mono hint">tap a thumb to change its fate</span>
 	</header>
 
 	<main>
@@ -210,8 +212,10 @@
 	</main>
 
 	<KeyLegend
-		items={[{ key: '↵', label: 'commit', action: onCommit }]}
-		notes={['click thumbs to re-fate', 'esc back to picker']}
+		items={[
+			{ key: '↵', label: 'commit', action: onCommit },
+			{ key: 'esc', label: 'back to picker', action: onExit }
+		]}
 	/>
 </div>
 
@@ -381,5 +385,20 @@
 
 	.commit {
 		align-self: flex-start;
+	}
+
+	@media (max-width: 760px) {
+		main {
+			padding: 14px 12px 28px;
+		}
+
+		.tiles {
+			grid-template-columns: repeat(2, 1fr);
+		}
+
+		.commit {
+			align-self: stretch;
+			padding: 14px;
+		}
 	}
 </style>

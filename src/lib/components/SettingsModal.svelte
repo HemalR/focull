@@ -54,11 +54,6 @@
 			<input type="number" min="1" bind:value={session.settings.videoWindowSeconds} onchange={save} />
 		</label>
 
-		<label class="check">
-			<input type="checkbox" bind:checked={session.settings.hoverLoupe} onchange={save} />
-			<span class="label">hover loupe — 2× magnifier while hovering photo panes</span>
-		</label>
-
 		{#if !stitchAvailable}
 			<p class="muted mono note">video stitching is off — ffmpeg was not found on the server.</p>
 		{/if}
@@ -130,16 +125,5 @@
 	.note {
 		margin: 0;
 		font-size: 11px;
-	}
-
-	.check {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		cursor: pointer;
-	}
-
-	.check input {
-		accent-color: var(--amber);
 	}
 </style>

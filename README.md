@@ -1,10 +1,10 @@
 # focull
 
-**focus + cull** — a keyboard-centric, desktop-focused culling app for [Immich](https://immich.app). People take too many photos; focull makes getting down to the good ones fast, and does it without ever deleting anything by default.
+**focus + cull** — a culling app for [Immich](https://immich.app): keyboard-driven on desktop, swipe-driven on your phone. People take too many photos; focull makes getting down to the good ones fast, and does it without ever deleting anything by default.
 
 ## How it works
 
-focull groups your library into scenes (photos taken within a few minutes of each other) and walks each scene as a stream of duels: the current best photo — the *champion* — sits large on the left, each next shot appears as a *challenger* on the right, and one keystroke decides every duel. Keep a decent shot and a better one turns up two frames later? It just takes the crown — no hunting back to delete the first.
+focull groups your library into scenes (photos taken within a few minutes of each other) and walks each scene as a stream of duels: the current best photo — the *champion* — faces each next shot — the *challenger* — and one keystroke (or swipe) decides every duel. Keep a decent shot and a better one turns up two frames later? It just takes the crown — no hunting back to delete the first.
 
 Open the app and you land straight in a **random trip**: the scene of a random photo you've never judged, plus the few days after it. No picking, just culling — and a trip down memory lane.
 
@@ -27,13 +27,29 @@ Nothing touches your library until you review and **commit**, at which point foc
 | `G` | Skip this group — it stays unreviewed for a later session |
 | `M` | Mute / unmute videos |
 | `U` | Undo last decision |
+| hold `↑` / `↓` | Full screen — hold the challenger (`↑`) or champion (`↓`) up to your face; `←`/`→` flip sides while held, release to go back |
 | `Z` | Full-resolution zoom on both panes with synced panning (sharpness duel) |
 | `Space` / `X` | Keep / cull (single-asset groups) |
 | `Enter` | Advance (next group, review, commit; another trip when done) |
 | `?` | Keyboard cheatsheet |
 | `Esc` | Back to the session picker |
 
-Click any undecided thumbnail in the carousel to make it the next challenger, and hover a photo pane for a magnifier loupe (toggleable in settings). On the review screen, click any judged thumbnail to change its fate before committing.
+Click any undecided thumbnail in the carousel to make it the next challenger, and hold `Shift` while hovering a photo pane for a magnifier loupe. On the review screen, click any judged thumbnail to change its fate before committing.
+
+## Phone (swipe deck)
+
+On touch screens and narrow windows the battle becomes a card deck: the challenger fills the screen and the one to beat sits in an inset.
+
+| Gesture | Action |
+|---|---|
+| Swipe `←` | Cull the challenger |
+| Swipe `→` | Keep it — it becomes the one to beat (nothing is culled) |
+| Swipe `↑` | Crown it — the old one to beat is culled |
+| Swipe `↓` | Add to the reel (video groups) |
+| Hold | See the one to beat in the card's place — a blink comparison (tap the inset to pin it) |
+| Double-tap | Full-resolution zoom; drag pans, holding still compares at the same zoom |
+
+Every swipe also has a button, plus undo; the `⋯` menu has albums, zoom, skip and the way back to sessions. Add focull to your home screen for a full-screen app.
 
 ## Running it
 
@@ -71,7 +87,7 @@ IMMICH_URL=http://your-immich:2283 npm run dev
 
 ## Sessions
 
-The app opens on a **random trip** (`T` in the picker for another). Or start from **unreviewed** (everything you've never judged — the reviewed tag is the source of truth, so this works across browsers and devices), **new since your last cull** (a faster date-based path), an **album**, a **date range**, or **duplicates** (Immich's visual duplicate groups, with the suggested keeper opening as champion). Photos chain into a scene while consecutive shots are within 5 minutes of each other; scenes longer than 40 photos split at their widest gaps. Videos cluster separately (10-minute gap between clips), so a clip never breaks up a run of photos. Both gaps are configurable in settings (`,`). The grouping is generous on purpose: an unrelated photo in a scene costs one `B`, while a missed pairing costs the comparison. Progress is saved locally as you go; an interrupted session offers to resume.
+The app opens on a **random trip** (`T` in the picker for another). Or start from **unreviewed** (everything you've never judged — the reviewed tag is the source of truth, so this works across browsers and devices), **new since your last cull** (a faster date-based path), an **album**, a **date range**, or **duplicates** (Immich's visual duplicate groups, with the suggested keeper opening as champion). Photos chain into a scene while consecutive shots are within 5 minutes of each other; scenes longer than 40 photos split at their widest gaps. Videos cluster separately (10-minute gap between clips), so a clip never breaks up a run of photos. Both gaps are configurable in settings (`,`). The grouping is generous on purpose: an unrelated photo in a scene costs one `B`, while a missed pairing costs the comparison. Progress is saved on the device as you go; reopening the app picks up where you left off, with a notice saying what it resumed (and a way to start a fresh trip instead).
 
 ## Safety model
 

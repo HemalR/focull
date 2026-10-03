@@ -377,6 +377,12 @@
 		border-color: var(--amber-dim);
 	}
 
+	@media (max-width: 760px) {
+		main {
+			padding: 20px 12px;
+		}
+	}
+
 	.detail {
 		padding: 14px;
 		display: flex;

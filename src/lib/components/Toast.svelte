@@ -33,6 +33,17 @@
 		animation: toast-in 160ms ease-out;
 	}
 
+	/* Narrow screens: centred, clear of the swipe deck's button row. */
+	@media (max-width: 760px), (pointer: coarse) {
+		.toast {
+			left: 12px;
+			right: 12px;
+			bottom: calc(150px + env(safe-area-inset-bottom));
+			max-width: none;
+			text-align: center;
+		}
+	}
+
 	.toast.err {
 		border-color: var(--rej);
 		color: var(--rej);

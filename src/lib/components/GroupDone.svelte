@@ -230,6 +230,23 @@
 		color: var(--ink);
 	}
 
+	@media (pointer: coarse) {
+		.done {
+			width: min(360px, 92vw);
+			padding: 24px 20px;
+		}
+
+		.done .btn {
+			width: 100%;
+			padding: 14px;
+		}
+
+		.chip {
+			font-size: 13px;
+			padding: 10px 8px;
+		}
+	}
+
 	@keyframes rise {
 		from {
 			opacity: 0;

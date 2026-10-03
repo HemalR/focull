@@ -13,9 +13,12 @@
 		/** Number of albums this asset is staged to — shows a "◇ N" badge when > 0. */
 		stagedCount?: number;
 		zoomed?: boolean;
+		/** Held up to your face: the pane takes the whole viewport (Battle: while ↑ is down). */
+		lifted?: boolean;
 		/** Shared pan point (0..1) while zoomed — both panes follow the same cursor. */
 		pan?: { x: number; y: number };
 		onpan?: (pan: { x: number; y: number }) => void;
+		/** Show the 2× magnifier under the cursor (Battle turns it on while Shift is held). */
 		loupe?: boolean;
 		muted?: boolean;
 		ontogglemute?: () => void;
@@ -29,6 +32,7 @@
 		sub = '',
 		stagedCount = 0,
 		zoomed = false,
+		lifted = false,
 		pan = { x: 0.5, y: 0.5 },
 		onpan,
 		loupe = false,
@@ -122,7 +126,7 @@
 	{/if}
 {/snippet}
 
-<section class={['pane', kind]}>
+<section class={['pane', kind, lifted && 'lifted']}>
 	<header class="label">
 		{#if kind === 'champion'}
 			<span class="champ">◆ champion</span>
@@ -183,6 +187,15 @@
 
 	.pane.champion {
 		border-color: var(--amber-dim);
+	}
+
+	/* Above the battle chrome, below overlays and toasts. */
+	.pane.lifted {
+		position: fixed;
+		inset: 0;
+		z-index: 20;
+		border: none;
+		border-radius: 0;
 	}
 
 	.pane.champion:hover {

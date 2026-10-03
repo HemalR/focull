@@ -11,7 +11,7 @@
 	<button type="button" class="backdrop" aria-label="close cheatsheet" onclick={onClose}></button>
 	<div class="card sheet" role="dialog" aria-modal="true" aria-label="keyboard shortcuts">
 		<header>
-			<span class="label">keyboard shortcuts</span>
+			<span class="label">gestures & shortcuts</span>
 			<span class="muted mono">? or esc closes</span>
 		</header>
 		<div class="groups">
@@ -69,6 +69,16 @@
 
 	section:first-child {
 		grid-row: span 2;
+	}
+
+	@media (max-width: 760px) {
+		.groups {
+			grid-template-columns: 1fr;
+		}
+
+		section:first-child {
+			grid-row: auto;
+		}
 	}
 
 	h2 {

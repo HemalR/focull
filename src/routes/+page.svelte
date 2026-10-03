@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { MediaQuery } from 'svelte/reactivity';
 	import { createHotkey } from '@tanstack/svelte-hotkeys';
 	import {
 		checkStitch,
@@ -19,10 +20,12 @@
 	import { DEFAULT_SETTINGS, type SessionSource, type Settings } from '$lib/types';
 	import { localDate, plural } from '$lib/format';
 	import Battle from '$lib/components/Battle.svelte';
+	import Swipe from '$lib/components/Swipe.svelte';
 	import Cheatsheet from '$lib/components/Cheatsheet.svelte';
 	import GroupDone from '$lib/components/GroupDone.svelte';
 	import Login from '$lib/components/Login.svelte';
 	import Picker from '$lib/components/Picker.svelte';
+	import ResumeNotice from '$lib/components/ResumeNotice.svelte';
 	import Review from '$lib/components/Review.svelte';
 	import Toast, { type ToastData } from '$lib/components/Toast.svelte';
 
@@ -30,7 +33,6 @@
 		| 'loading'
 		| 'needs-config'
 		| 'login'
-		| 'resume'
 		| 'picker'
 		| 'fetching'
 		| 'battle'
@@ -47,6 +49,10 @@
 	let versionBannerDismissed = $state(false);
 	let cheatsheetOpen = $state(false);
 	let battleOverlay = $state(false);
+
+	/** Touch screens and narrow windows get the swipe deck; roomy mouse screens the side-by-side panes. */
+	const touchUi = new MediaQuery('(pointer: coarse), (max-width: 760px)');
+	const BattleUi = $derived(touchUi.current ? Swipe : Battle);
 
 	interface UpdateInfo {
 		current: string;
@@ -65,7 +71,8 @@
 			return null;
 		}
 	};
-	let saved = $state.raw<SessionData | null>(null);
+	/** The session was reopened from device storage — show ResumeNotice until the user does anything. */
+	let resumed = $state(false);
 
 	let fetchCount = $state(0);
 	let fetchSummary = $state<{ assets: number; groups: number; tripDate?: string } | null>(null);
@@ -128,10 +135,10 @@
 		}
 	}
 
-	/** Offer to resume a saved session; otherwise drop straight into a random trip. */
+	/** Reopen the saved session; otherwise drop straight into a random trip. */
 	async function afterLogin() {
-		saved = (await loadSession()) ?? null;
-		if (saved) phase = 'resume';
+		const saved = await loadSession();
+		if (saved) resume(saved);
 		else await startTrip();
 	}
 
@@ -198,27 +205,22 @@
 		}
 	}
 
-	function resume() {
-		if (!saved) return;
+	function resume(saved: SessionData) {
 		session.restore(saved);
-		saved = null;
 		const g = session.group;
 		const s = session.current;
 		if (!g || !s) {
 			phase = 'picker';
-		} else if (g.assets.length > 1 && s.queue.length === 0 && !session.skipped.includes(session.gi)) {
+			return;
+		}
+		resumed = true;
+		if (g.assets.length > 1 && s.queue.length === 0 && !session.skipped.includes(session.gi)) {
 			phase = 'group-done'; // finished duel, was waiting on Enter
 		} else if (session.isPending(session.gi)) {
 			phase = 'battle';
 		} else {
 			advance();
 		}
-	}
-
-	function discardSaved() {
-		saved = null;
-		void clearSession();
-		phase = 'picker';
 	}
 
 	/** After a group is settled or skipped: next pending group, or the review screen when none remain. */
@@ -305,12 +307,15 @@
 			newSession();
 			return;
 		}
-		if (session.hasDecisions && !confirm('Abandon this session? Your decisions will be lost.')) {
-			return;
-		}
+		if (abandon()) phase = 'picker';
+	}
+
+	/** Drop the current session, confirming first if it holds decisions. Returns whether it was dropped. */
+	function abandon(): boolean {
+		if (session.hasDecisions && !confirm('Abandon this session? Your decisions will be lost.')) return false;
 		session.reset();
 		void clearSession();
-		phase = 'picker';
+		return true;
 	}
 
 	createHotkey('Escape', escapeOut, () => ({
@@ -337,22 +342,19 @@
 	createHotkey(
 		'Enter',
 		() => {
-			if (phase === 'resume') resume();
-			else if (phase === 'fetching') newSession();
+			if (phase === 'fetching') newSession();
 			else if (phase === 'committing') void commit();
 			else if (phase === 'done') newTrip();
 		},
 		() => ({
 			conflictBehavior: 'allow',
 			enabled:
-				phase === 'resume' ||
 				phase === 'done' ||
 				(phase === 'fetching' && fetchEmpty) ||
 				(phase === 'committing' && commitFailed)
 		})
 	);
 
-	createHotkey('N', discardSaved, () => ({ enabled: phase === 'resume' }));
 	createHotkey('R', newSession, () => ({ enabled: phase === 'done' }));
 </script>
 
@@ -389,22 +391,6 @@
 			void afterLogin();
 		}}
 	/>
-{:else if phase === 'resume'}
-	<div class="center-screen">
-		<div class="card notice">
-			<span class="brand">focull<span class="dot">.</span></span>
-			<h1>Resume last session?</h1>
-			{#if saved}
-				<p class="muted mono">
-					{plural(saved.groups.length, 'group')} · group {saved.gi + 1} was up next
-				</p>
-			{/if}
-			<div class="row-btns">
-				<button type="button" class="btn" onclick={resume}>resume ↵</button>
-				<button type="button" class="ghost mono" onclick={discardSaved}><kbd>N</kbd> new session</button>
-			</div>
-		</div>
-	</div>
 {:else if phase === 'picker'}
 	<Picker
 		{user}
@@ -454,7 +440,7 @@
 		</div>
 	</div>
 {:else if phase === 'battle' || phase === 'group-done'}
-	<Battle
+	<BattleUi
 		active={phase === 'battle' && !cheatsheetOpen}
 		stitchAvailable={stitch}
 		{notify}
@@ -462,6 +448,7 @@
 		onSingleDone={advance}
 		onSkipped={advance}
 		onHelp={() => (cheatsheetOpen = true)}
+		onExit={escapeOut}
 		onOverlay={(open) => (battleOverlay = open)}
 	/>
 	{#if phase === 'group-done'}
@@ -479,6 +466,7 @@
 		{notify}
 		onChanged={() => (plan = computePlan())}
 		onCommit={() => void commit()}
+		onExit={escapeOut}
 	/>
 {:else if phase === 'committing'}
 	<div class="center-screen">
@@ -493,7 +481,10 @@
 				{/if}
 			</ul>
 			{#if commitFailed}
-				<p class="mono muted">enter — retry · esc — back to review</p>
+				<div class="row-btns">
+					<button type="button" class="btn" onclick={() => void commit()}>retry ↵</button>
+					<button type="button" class="ghost mono" onclick={escapeOut}><kbd>esc</kbd> back to review</button>
+				</div>
 			{/if}
 		</div>
 	</div>
@@ -530,6 +521,17 @@
 			</div>
 		</div>
 	</div>
+{/if}
+
+{#if resumed}
+	<ResumeNotice
+		onNew={() => {
+			if (!abandon()) return;
+			resumed = false;
+			void startTrip();
+		}}
+		onDismiss={() => (resumed = false)}
+	/>
 {/if}
 
 {#if cheatsheetOpen}

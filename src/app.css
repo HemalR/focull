@@ -138,6 +138,13 @@ a:hover {
 	color: var(--mut);
 }
 
+/* Touch-only screens: key hints mean nothing, so drop them (buttons keep their labels). */
+@media (hover: none) and (pointer: coarse) {
+	kbd {
+		display: none;
+	}
+}
+
 @media (prefers-reduced-motion: reduce) {
 	*,
 	*::before,

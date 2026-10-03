@@ -23,8 +23,21 @@ export const KEYMAP: KeyGroup[] = [
 			{ keys: 'A', label: 'album palette — stage the champion, applied at commit' },
 			{ keys: 'G', label: 'skip group — stays unreviewed' },
 			{ keys: 'U', label: 'undo last decision' },
+			{ keys: 'hold ↑ / ↓', label: 'full screen the challenger / champion · ←/→ flip sides while held' },
 			{ keys: 'Z', label: 'full-res zoom · mouse pans both panes' },
+			{ keys: 'shift + hover', label: '2× magnifier loupe under the cursor' },
 			{ keys: 'click thumb', label: 'battle an undecided asset next' }
+		]
+	},
+	{
+		title: 'swipe deck (touch / narrow screens)',
+		entries: [
+			{ keys: '← swipe', label: 'cull the photo' },
+			{ keys: '→ swipe', label: 'keep it — it becomes the one to beat' },
+			{ keys: '↑ swipe', label: 'crown it — the old one to beat is culled' },
+			{ keys: '↓ swipe', label: 'add to reel (video groups)' },
+			{ keys: 'hold', label: 'see the one to beat in its place (tap the inset to pin)' },
+			{ keys: 'double-tap', label: 'zoom · drag pans · hold still compares' }
 		]
 	},
 	{
@@ -62,7 +75,7 @@ export const KEYMAP: KeyGroup[] = [
 			{ keys: 'T', label: 'picker: random trip (also what the app opens on)' },
 			{ keys: '1–5', label: 'picker: choose session source' },
 			{ keys: ',', label: 'picker: settings' },
-			{ keys: '↵', label: 'confirm / next group / resume' },
+			{ keys: '↵', label: 'confirm / next group' },
 			{ keys: 'esc', label: 'back to picker · close overlays' },
 			{ keys: '?', label: 'this cheatsheet' },
 			{ keys: '↵ / R', label: 'done screen: another trip / pick a session' }
