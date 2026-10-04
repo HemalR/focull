@@ -6,6 +6,8 @@
 	import { session } from '$lib/session.svelte';
 	import type { SessionSource } from '$lib/types';
 	import SettingsModal from './SettingsModal.svelte';
+	import { onKey, rebindable } from '$lib/keymap.svelte';
+	import Key from './Key.svelte';
 	import KeyLegend from './KeyLegend.svelte';
 
 	interface UpdateInfo {
@@ -97,30 +99,37 @@
 		else if (mode === 'range') startRange();
 	}
 
-	const closed = $derived(!settingsOpen);
-	createHotkey('T', () => onTrip(), () => ({ enabled: closed }));
-	createHotkey('1', () => onStart({ kind: 'unreviewed' }), () => ({ enabled: closed }));
-	createHotkey('2', () => onStart({ kind: 'new', takenAfter: since }), () => ({ enabled: closed }));
-	createHotkey('3', () => void openAlbums(), () => ({ enabled: closed }));
-	createHotkey('4', () => (mode = 'range'), () => ({ enabled: closed }));
-	createHotkey('5', () => onStart({ kind: 'duplicates' }), () => ({ enabled: closed }));
-	createHotkey(',', () => (settingsOpen = true), () => ({ enabled: closed }));
+	const startUnreviewed = () => onStart({ kind: 'unreviewed' });
+	const startNew = () => onStart({ kind: 'new', takenAfter: since });
+	const startDuplicates = () => onStart({ kind: 'duplicates' });
+	const openRange = () => (mode = 'range');
+	const openSettings = () => (settingsOpen = true);
+
+	const closed = () => ({ enabled: !settingsOpen });
+	onKey('trip', () => onTrip(), closed);
+	onKey('unreviewed', startUnreviewed, closed);
+	onKey('newSince', startNew, closed);
+	onKey('pickAlbum', () => void openAlbums(), closed);
+	onKey('range', openRange, closed);
+	onKey('duplicates', startDuplicates, closed);
+	onKey('settings', openSettings, closed);
 	createHotkey('Escape', () => (mode = 'none'), () => ({
 		conflictBehavior: 'allow',
-		enabled: closed && mode !== 'none'
+		enabled: !settingsOpen && mode !== 'none'
 	}));
+	// The album list and range form keep the standard ↑ ↓ ↵ — they're form keys, not shortcuts.
 	createHotkey(
 		'ArrowDown',
 		() => (highlight = Math.min(highlight + 1, filtered.length - 1)),
-		() => ({ enabled: closed && mode === 'album', ignoreInputs: false })
+		() => ({ enabled: !settingsOpen && mode === 'album', ignoreInputs: false })
 	);
 	createHotkey(
 		'ArrowUp',
 		() => (highlight = Math.max(highlight - 1, 0)),
-		() => ({ enabled: closed && mode === 'album', ignoreInputs: false })
+		() => ({ enabled: !settingsOpen && mode === 'album', ignoreInputs: false })
 	);
 	createHotkey('Enter', confirmEnter, () => ({
-		enabled: closed && mode !== 'none',
+		enabled: !settingsOpen && mode !== 'none',
 		ignoreInputs: false,
 		conflictBehavior: 'allow'
 	}));
@@ -158,14 +167,14 @@
 		<h1 class="label">pick a session source</h1>
 
 		<div class="sources">
-			<button type="button" class={['card', 'source']} onclick={onTrip}>
-				<kbd>T</kbd>
+			<button type="button" class={['card', 'source']} onclick={onTrip} {@attach rebindable('trip')}>
+				<Key action="trip" />
 				<strong>Random trip</strong>
 				<span class="muted mono">a few random days of unreviewed photos — relive and cull</span>
 			</button>
 
-			<button type="button" class={['card', 'source']} onclick={() => onStart({ kind: 'unreviewed' })}>
-				<kbd>1</kbd>
+			<button type="button" class={['card', 'source']} onclick={startUnreviewed} {@attach rebindable('unreviewed')}>
+				<Key action="unreviewed" />
 				<strong>Unreviewed</strong>
 				<span class="muted mono">
 					everything you've never judged — skips anything tagged
@@ -173,18 +182,19 @@
 				</span>
 			</button>
 
-			<button
-				type="button"
-				class={['card', 'source']}
-				onclick={() => onStart({ kind: 'new', takenAfter: since })}
-			>
-				<kbd>2</kbd>
+			<button type="button" class={['card', 'source']} onclick={startNew} {@attach rebindable('newSince')}>
+				<Key action="newSince" />
 				<strong>New since last cull</strong>
 				<span class="muted mono">since {calendarDate(since)}{lastCull ? '' : ' (no cull yet — 30 days)'}</span>
 			</button>
 
-			<button type="button" class={['card', 'source', mode === 'album' && 'active']} onclick={openAlbums}>
-				<kbd>3</kbd>
+			<button
+				type="button"
+				class={['card', 'source', mode === 'album' && 'active']}
+				onclick={openAlbums}
+				{@attach rebindable('pickAlbum')}
+			>
+				<Key action="pickAlbum" />
 				<strong>Album</strong>
 				<span class="muted mono">battle one album</span>
 			</button>
@@ -192,15 +202,16 @@
 			<button
 				type="button"
 				class={['card', 'source', mode === 'range' && 'active']}
-				onclick={() => (mode = 'range')}
+				onclick={openRange}
+				{@attach rebindable('range')}
 			>
-				<kbd>4</kbd>
+				<Key action="range" />
 				<strong>Date range</strong>
 				<span class="muted mono">a specific stretch of time</span>
 			</button>
 
-			<button type="button" class={['card', 'source']} onclick={() => onStart({ kind: 'duplicates' })}>
-				<kbd>5</kbd>
+			<button type="button" class={['card', 'source']} onclick={startDuplicates} {@attach rebindable('duplicates')}>
+				<Key action="duplicates" />
 				<strong>Duplicates</strong>
 				<span class="muted mono">
 					Immich's visual duplicate groups — suggested keeper opens as champion
@@ -263,14 +274,14 @@
 
 	<KeyLegend
 		items={[
-			{ key: 'T', label: 'random trip', action: onTrip },
-			{ key: '1', label: 'unreviewed', action: () => onStart({ kind: 'unreviewed' }) },
-			{ key: '2', label: 'new since last cull', action: () => onStart({ kind: 'new', takenAfter: since }) },
-			{ key: '3', label: 'album', action: () => void openAlbums() },
-			{ key: '4', label: 'date range', action: () => (mode = 'range') },
-			{ key: '5', label: 'duplicates', action: () => onStart({ kind: 'duplicates' }) },
-			{ key: ',', label: 'settings', action: () => (settingsOpen = true) },
-			{ key: '?', label: 'shortcuts', action: onHelp }
+			{ action: 'trip', label: 'random trip', run: onTrip },
+			{ action: 'unreviewed', label: 'unreviewed', run: startUnreviewed },
+			{ action: 'newSince', label: 'new since last cull', run: startNew },
+			{ action: 'pickAlbum', label: 'album', run: () => void openAlbums() },
+			{ action: 'range', label: 'date range', run: openRange },
+			{ action: 'duplicates', label: 'duplicates', run: startDuplicates },
+			{ action: 'settings', label: 'settings', run: openSettings },
+			{ keys: '?', label: 'shortcuts', run: onHelp }
 		]}
 		notes={['nothing is deleted until you commit']}
 	/>

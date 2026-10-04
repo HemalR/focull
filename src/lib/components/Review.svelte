@@ -1,12 +1,13 @@
 <script lang="ts">
 	import type { AssetResponseDto } from '@immich/sdk';
-	import { createHotkey } from '@tanstack/svelte-hotkeys';
 	import type { CommitPlan } from '$lib/commit';
 	import { thumbnailUrl } from '$lib/immich';
 	import { thumbhashStyle } from '$lib/thumbhash';
 	import { durationMs, fmtDuration, plural } from '$lib/format';
 	import { session } from '$lib/session.svelte';
 	import type { Fate } from '$lib/types';
+	import { onKey, rebindable } from '$lib/keymap.svelte';
+	import Key from './Key.svelte';
 	import KeyLegend from './KeyLegend.svelte';
 
 	interface Props {
@@ -113,7 +114,7 @@
 		return `Commit will ${parts.join(', ')}.${tail}`;
 	});
 
-	createHotkey('Enter', () => onCommit(), { conflictBehavior: 'allow' });
+	onKey('confirm', () => onCommit());
 </script>
 
 {#snippet mini(thumb: Thumb, extra?: string)}
@@ -208,13 +209,15 @@
 
 		<p class="sentence mono">{sentence}</p>
 
-		<button type="button" class="btn commit" onclick={onCommit}>commit ↵</button>
+		<button type="button" class="btn commit" onclick={onCommit} {@attach rebindable('confirm')}>
+			commit <Key action="confirm" />
+		</button>
 	</main>
 
 	<KeyLegend
 		items={[
-			{ key: '↵', label: 'commit', action: onCommit },
-			{ key: 'esc', label: 'back to picker', action: onExit }
+			{ action: 'confirm', label: 'commit', run: onCommit },
+			{ keys: 'esc', label: 'back to picker', run: onExit }
 		]}
 	/>
 </div>

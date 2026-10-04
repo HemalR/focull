@@ -27,7 +27,10 @@
 	import Picker from '$lib/components/Picker.svelte';
 	import ResumeNotice from '$lib/components/ResumeNotice.svelte';
 	import Review from '$lib/components/Review.svelte';
-	import Toast, { type ToastData } from '$lib/components/Toast.svelte';
+	import Toast from '$lib/components/Toast.svelte';
+	import Key from '$lib/components/Key.svelte';
+	import { onKey, rebindable } from '$lib/keymap.svelte';
+	import { notify, toast } from '$lib/toast.svelte';
 
 	type Phase =
 		| 'loading'
@@ -90,14 +93,6 @@
 	let doneReviewed = $state(0);
 	let statsLine = $state('');
 
-	let toast = $state<ToastData | null>(null);
-	let toastTimer: ReturnType<typeof setTimeout> | undefined;
-
-	function notify(msg: string, err = false) {
-		toast = { msg, err };
-		clearTimeout(toastTimer);
-		toastTimer = setTimeout(() => (toast = null), 1600);
-	}
 
 	onMount(() => void init());
 
@@ -339,15 +334,14 @@
 		conflictBehavior: 'allow'
 	});
 
-	createHotkey(
-		'Enter',
+	onKey(
+		'confirm',
 		() => {
 			if (phase === 'fetching') newSession();
 			else if (phase === 'committing') void commit();
 			else if (phase === 'done') newTrip();
 		},
 		() => ({
-			conflictBehavior: 'allow',
 			enabled:
 				phase === 'done' ||
 				(phase === 'fetching' && fetchEmpty) ||
@@ -355,7 +349,7 @@
 		})
 	);
 
-	createHotkey('R', newSession, () => ({ enabled: phase === 'done' }));
+	onKey('pickSession', newSession, () => ({ enabled: phase === 'done' }));
 </script>
 
 {#if phase === 'loading'}
@@ -424,7 +418,9 @@
 				<p class="mono">
 					{(fetchKind && emptyMessages[fetchKind]) ?? 'No assets match — nothing to cull. Nice and tidy.'}
 				</p>
-				<button type="button" class="btn" onclick={newSession}>back to picker ↵</button>
+				<button type="button" class="btn" onclick={newSession} {@attach rebindable('confirm')}>
+					back to picker <Key action="confirm" />
+				</button>
 			{:else if fetchSummary}
 				{#if fetchSummary.tripDate}
 					<p class="mono trip">a trip back to {fetchSummary.tripDate}</p>
@@ -482,7 +478,9 @@
 			</ul>
 			{#if commitFailed}
 				<div class="row-btns">
-					<button type="button" class="btn" onclick={() => void commit()}>retry ↵</button>
+					<button type="button" class="btn" onclick={() => void commit()} {@attach rebindable('confirm')}>
+						retry <Key action="confirm" />
+					</button>
 					<button type="button" class="ghost mono" onclick={escapeOut}><kbd>esc</kbd> back to review</button>
 				</div>
 			{/if}
@@ -516,8 +514,12 @@
 				{#each commitLog as line, i (i)}<li>{line}</li>{/each}
 			</ul>
 			<div class="row-btns">
-				<button type="button" class="btn" onclick={newTrip}>another trip ↵</button>
-				<button type="button" class="ghost mono" onclick={newSession}><kbd>R</kbd> pick a session</button>
+				<button type="button" class="btn" onclick={newTrip} {@attach rebindable('confirm')}>
+					another trip <Key action="confirm" />
+				</button>
+				<button type="button" class="ghost mono" onclick={newSession} {@attach rebindable('pickSession')}>
+					<Key action="pickSession" /> pick a session
+				</button>
 			</div>
 		</div>
 	</div>
@@ -538,7 +540,7 @@
 	<Cheatsheet onClose={() => (cheatsheetOpen = false)} />
 {/if}
 
-<Toast {toast} />
+<Toast toast={toast.current} />
 
 <style>
 	.mini {

@@ -1,9 +1,10 @@
 <script lang="ts">
-	import { createHotkey } from '@tanstack/svelte-hotkeys';
 	import { thumbnailUrl } from '$lib/immich';
 	import { thumbhashStyle } from '$lib/thumbhash';
 	import { durationMs, fmtDuration, plural } from '$lib/format';
+	import { onKey, rebindable } from '$lib/keymap.svelte';
 	import { session } from '$lib/session.svelte';
+	import Key from './Key.svelte';
 
 	interface Props {
 		last: boolean;
@@ -59,9 +60,9 @@
 		if ((session.current?.queue.length ?? 0) > 0) onReopen();
 	}
 
-	createHotkey('Enter', () => onNext(), { conflictBehavior: 'allow' });
-	createHotkey('X', cullWinner, () => ({ enabled: !winnerCulled, conflictBehavior: 'allow' }));
-	createHotkey('U', undo, { conflictBehavior: 'allow' });
+	onKey('confirm', () => onNext());
+	onKey('cull', cullWinner, () => ({ enabled: !winnerCulled }));
+	onKey('undo', undo);
 </script>
 
 <div class="overlay">
@@ -90,16 +91,16 @@
 				<li class="muted">everything survived</li>
 			{/if}
 		</ul>
-		<button type="button" class="btn" onclick={onNext}>
-			{last ? 'review' : 'next group'} ↵
+		<button type="button" class="btn" onclick={onNext} {@attach rebindable('confirm')}>
+			{last ? 'review' : 'next group'} <Key action="confirm" />
 		</button>
 		<span class="chips mono">
 			{#if !winnerCulled}
-				<button type="button" class="chip" onclick={cullWinner}>
-					<kbd>X</kbd> cull this one too
+				<button type="button" class="chip" onclick={cullWinner} {@attach rebindable('cull')}>
+					<Key action="cull" /> cull this one too
 				</button>
 			{/if}
-			<button type="button" class="chip" onclick={undo}><kbd>U</kbd> undo</button>
+			<button type="button" class="chip" onclick={undo} {@attach rebindable('undo')}><Key action="undo" /> undo</button>
 		</span>
 	</div>
 </div>

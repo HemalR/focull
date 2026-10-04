@@ -17,6 +17,8 @@ Nothing touches your library until you review and **commit**, at which point foc
 
 ## Keyboard
 
+These are the defaults, and every one can be changed. **Shift-click any key you see on screen** (or click it in the `?` cheatsheet), then press the new key. If it's already taken, the two actions swap. Esc and `?` are fixed. Custom keys are saved on the device, and the cheatsheet can reset them.
+
 | Key | Action |
 |---|---|
 | `←` (or click champion) | Champion stays — challenger is culled |
@@ -27,7 +29,7 @@ Nothing touches your library until you review and **commit**, at which point foc
 | `G` | Skip this group — it stays unreviewed for a later session |
 | `M` | Mute / unmute videos |
 | `U` | Undo last decision |
-| hold `↑` / `↓` | Full screen — hold the challenger (`↑`) or champion (`↓`) up to your face; `←`/`→` flip sides while held, release to go back |
+| hold `↑` / `↓` | Full screen — hold the challenger (`↑`) or champion (`↓`) up to your face; while held, `←`/`→` flip between the two, `Space` picks the one shown as the winner, `X` culls it and `B` keeps both; release to go back |
 | `Z` | Full-resolution zoom on both panes with synced panning (sharpness duel) |
 | `Space` / `X` | Keep / cull (single-asset groups) |
 | `Enter` | Advance (next group, review, commit; another trip when done) |

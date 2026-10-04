@@ -1,6 +1,6 @@
 import { AssetTypeEnum } from '@immich/sdk';
-import { createHotkey } from '@tanstack/svelte-hotkeys';
 import { localDate, plural } from './format';
+import { onKey } from './keymap.svelte';
 import { previewUrl } from './immich';
 import { prefetchImage } from './prefetch';
 import { session } from './session.svelte';
@@ -33,7 +33,8 @@ export type Overlay = 'album' | 'menu';
 /**
  * Battle logic both UIs share: who's up, the decisions (with their toasts), view state
  * (zoom, pan, sound, overlays), the keys that don't depend on layout, and keeping the next
- * previews warm. Construct during component init with a getter for the component's props.
+ * previews warm. Each UI binds the decision keys itself (Battle decides at once, the deck
+ * flings the card first). Construct during component init with a getter for its props.
  */
 export class Duel {
 	readonly #props: () => DuelProps;
@@ -93,16 +94,20 @@ export class Duel {
 		});
 
 		const when = (enabled: () => boolean) => () => ({ enabled: enabled() });
-		createHotkey('B', () => this.decide('keepBoth'), when(() => this.dueling));
-		createHotkey('S', () => this.decide('reel'), when(() => this.dueling && this.canReel));
-		createHotkey('Space', () => this.decideSingle(true), when(() => this.keysActive && this.isSingle));
-		createHotkey('X', () => this.decideSingle(false), when(() => this.keysActive && this.isSingle));
-		createHotkey('U', () => this.undo(), when(() => this.keysActive));
-		createHotkey('Z', () => (this.zoomed = !this.zoomed), when(() => this.keysActive));
-		createHotkey('G', () => this.skip(), when(() => this.keysActive));
-		createHotkey('A', () => this.setOverlay('album'), when(() => this.keysActive && !!this.champion));
-		createHotkey('M', () => (this.muted = !this.muted), when(() => this.keysActive && this.group?.kind === 'video'));
+		onKey('undo', this.undo, when(() => this.keysActive));
+		onKey('zoom', this.toggleZoom, when(() => this.keysActive));
+		onKey('skip', this.skip, when(() => this.keysActive));
+		onKey('album', () => this.setOverlay('album'), when(() => this.keysActive && !!this.champion));
+		onKey('mute', this.toggleMute, when(() => this.keysActive && this.group?.kind === 'video'));
 	}
+
+	toggleZoom = (): void => {
+		this.zoomed = !this.zoomed;
+	};
+
+	toggleMute = (): void => {
+		this.muted = !this.muted;
+	};
 
 	decide = (action: DuelAction): void => {
 		const { challenger, challengerIdx, state } = this;

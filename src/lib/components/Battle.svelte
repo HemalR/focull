@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { createHotkey } from '@tanstack/svelte-hotkeys';
 	import { Duel, type DuelAction, type DuelProps } from '$lib/duel.svelte';
+	import { onKey, type Action } from '$lib/keymap.svelte';
 	import { session } from '$lib/session.svelte';
 	import AlbumPalette from './AlbumPalette.svelte';
 	import Pane from './Pane.svelte';
@@ -13,23 +13,50 @@
 	const tally = $derived(session.tally);
 
 	type Side = 'champion' | 'challenger';
-	/** Momentary full screen: the pane held up to your face while its key is down. */
+	/**
+	 * Momentary full screen, "holding a photo up to your face": `held` is the side whose hold
+	 * key is down, `lifted` the pane on screen. While held, the pane keys flip between the two
+	 * and keep / cull judge the one on screen; after any decision the held side comes back up.
+	 */
+	let held = $state<Side | null>(null);
 	let lifted = $state<Side | null>(null);
-	const holdUp = (key: 'ArrowUp' | 'ArrowDown', pane: Side) => {
-		createHotkey(key, () => (lifted ??= duel.isSingle ? 'champion' : pane), () => ({
-			enabled: duel.keysActive
-		}));
-		createHotkey(key, () => (lifted = null), { eventType: 'keyup', conflictBehavior: 'allow' });
+	const holdUp = (action: Action, pane: Side) => {
+		onKey(
+			action,
+			() => {
+				if (!held) held = lifted = duel.isSingle ? 'champion' : pane;
+			},
+			() => ({ enabled: duel.keysActive })
+		);
+		onKey(action, () => (held = lifted = null), { eventType: 'keyup' });
 	};
-	holdUp('ArrowUp', 'challenger');
-	holdUp('ArrowDown', 'champion');
+	holdUp('liftChallenger', 'challenger');
+	holdUp('liftChampion', 'champion');
 
-	// Spatial keys: pick the pane on that side — or, while one is lifted, flip to that side.
-	const side = (pane: Side, action: DuelAction) => () => (lifted ? (lifted = pane) : duel.decide(action));
-	createHotkey('ArrowLeft', side('champion', 'defend'), () => ({ enabled: duel.dueling }));
-	createHotkey('ArrowRight', side('challenger', 'dethrone'), () => ({ enabled: duel.dueling }));
+	const decide = (action: DuelAction) => {
+		duel.decide(action);
+		lifted = held;
+	};
+	/** A pane key: decide — or, while one is lifted, flip to the other. */
+	const paneKey = (action: DuelAction) => () =>
+		lifted ? (lifted = lifted === 'champion' ? 'challenger' : 'champion') : decide(action);
+	const dueling = () => ({ enabled: duel.dueling });
+	onKey('defend', paneKey('defend'), dueling);
+	onKey('dethrone', paneKey('dethrone'), dueling);
+	onKey('keepBoth', () => decide('keepBoth'), dueling);
+	onKey('reel', () => decide('reel'), () => ({ enabled: duel.dueling && duel.canReel }));
 
-	const toggleZoom = () => (duel.zoomed = !duel.zoomed);
+	/** Keep or cull the photo on screen: a single, or the side held up full screen. */
+	const judgeShown = (keep: boolean) => () => {
+		if (duel.isSingle) duel.decideSingle(keep);
+		else decide((lifted === 'champion') === keep ? 'defend' : 'dethrone');
+	};
+	const shownJudgeable = () => ({
+		enabled: duel.keysActive && (duel.isSingle || (duel.dueling && lifted !== null))
+	});
+	onKey('keep', judgeShown(true), shownJudgeable);
+	onKey('cull', judgeShown(false), shownJudgeable);
+
 	/**
 	 * Shift held → magnifier loupe. Read from each event's own modifier state rather than
 	 * tracking keydown/keyup pairs: input methods can swallow a lone Shift release, and the
@@ -44,35 +71,35 @@
 		onpan: (pan: { x: number; y: number }) => (duel.pan = pan),
 		loupe: shift,
 		muted: duel.muted,
-		ontogglemute: () => (duel.muted = !duel.muted)
+		ontogglemute: duel.toggleMute
 	});
 
 	const legend = $derived.by((): LegendItem[] => {
 		const shared: LegendItem[] = [
-			{ key: 'A', label: 'album', action: () => duel.setOverlay('album') },
-			{ key: 'G', label: 'skip group — stays unreviewed', action: duel.skip },
-			{ key: 'U', label: 'undo', action: duel.undo },
-			{ key: '↑ ↓', label: 'hold — full screen' },
-			{ key: 'Z', label: 'zoom', action: toggleZoom },
-			{ key: '?', label: 'shortcuts', action: props.onHelp }
+			{ action: 'album', label: 'album', run: () => duel.setOverlay('album') },
+			{ action: 'skip', label: 'skip group — stays unreviewed', run: duel.skip },
+			{ action: 'undo', label: 'undo', run: duel.undo },
+			{ action: ['liftChallenger', 'liftChampion'], label: 'hold — full screen' },
+			{ action: 'zoom', label: 'zoom', run: duel.toggleZoom },
+			{ keys: '?', label: 'shortcuts', run: props.onHelp }
 		];
 		const mute: LegendItem[] =
 			duel.group?.kind === 'video'
-				? [{ key: 'M', label: duel.muted ? 'unmute' : 'mute', action: view.ontogglemute }]
+				? [{ action: 'mute', label: duel.muted ? 'unmute' : 'mute', run: duel.toggleMute }]
 				: [];
 		if (duel.isSingle) {
 			return [
-				{ key: 'space', label: 'keep', action: () => duel.decideSingle(true) },
-				{ key: 'X', label: 'cull', action: () => duel.decideSingle(false) },
+				{ action: 'keep', label: 'keep', run: () => duel.decideSingle(true) },
+				{ action: 'cull', label: 'cull', run: () => duel.decideSingle(false) },
 				...mute,
 				...shared
 			];
 		}
 		return [
-			{ key: '←', label: 'champion stays', action: () => duel.decide('defend') },
-			{ key: '→', label: 'challenger wins', action: () => duel.decide('dethrone') },
-			{ key: 'B', label: 'keep both — new one to beat', action: () => duel.decide('keepBoth') },
-			...(duel.canReel ? [{ key: 'S', label: 'add to reel', action: () => duel.decide('reel') }] : []),
+			{ action: 'defend', label: 'champion stays', run: () => duel.decide('defend') },
+			{ action: 'dethrone', label: 'challenger wins', run: () => duel.decide('dethrone') },
+			{ action: 'keepBoth', label: 'keep both — new one to beat', run: () => duel.decide('keepBoth') },
+			...(duel.canReel ? [{ action: 'reel', label: 'add to reel', run: () => duel.decide('reel') } as const] : []),
 			...mute,
 			...shared
 		];
@@ -85,7 +112,7 @@
 	onpointermove={trackShift}
 	onblur={() => {
 		shift = false;
-		lifted = null;
+		held = lifted = null;
 	}}
 />
 

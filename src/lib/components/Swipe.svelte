@@ -2,6 +2,7 @@
 	import { AssetTypeEnum, type AssetResponseDto } from '@immich/sdk';
 	import { createHotkey } from '@tanstack/svelte-hotkeys';
 	import { Duel, type DuelProps } from '$lib/duel.svelte';
+	import { onKey, type Action } from '$lib/keymap.svelte';
 	import { fullsizeUrl, playbackUrl, previewUrl, thumbnailUrl } from '$lib/immich';
 	import { session } from '$lib/session.svelte';
 	import { thumbhashStyle } from '$lib/thumbhash';
@@ -19,6 +20,8 @@
 
 	type Dir = 'left' | 'right' | 'up' | 'down';
 	interface Outcome {
+		/** The keyboard action that throws the card this way. */
+		action: Action;
 		label: string;
 		icon: string;
 		tone: 'rej' | 'keep' | 'amber' | 'reel';
@@ -26,24 +29,24 @@
 	}
 
 	/**
-	 * What each swipe does — also drives the button row and arrow keys. Right is the safe "yes":
+	 * What each swipe does — also drives the button row and keys. Right is the safe "yes":
 	 * keeping never culls anything. Crowning culls the old champion, so it takes the deliberate
 	 * flick up onto the inset.
 	 */
 	const outcomes = $derived.by((): Partial<Record<Dir, Outcome>> => {
 		if (duel.isSingle) {
 			return {
-				left: { label: 'cull', icon: '✕', tone: 'rej', run: () => duel.decideSingle(false) },
-				right: { label: 'keep', icon: '✓', tone: 'keep', run: () => duel.decideSingle(true) }
+				left: { action: 'cull', label: 'cull', icon: '✕', tone: 'rej', run: () => duel.decideSingle(false) },
+				right: { action: 'keep', label: 'keep', icon: '✓', tone: 'keep', run: () => duel.decideSingle(true) }
 			};
 		}
 		return {
-			left: { label: 'cull', icon: '✕', tone: 'rej', run: () => duel.decide('defend') },
+			left: { action: 'defend', label: 'cull', icon: '✕', tone: 'rej', run: () => duel.decide('defend') },
 			...(duel.canReel && {
-				down: { label: 'reel', icon: '◉', tone: 'reel', run: () => duel.decide('reel') }
+				down: { action: 'reel', label: 'reel', icon: '◉', tone: 'reel', run: () => duel.decide('reel') }
 			}),
-			up: { label: 'crown', icon: '◆', tone: 'amber', run: () => duel.decide('dethrone') },
-			right: { label: 'keep', icon: '✓', tone: 'keep', run: () => duel.decide('keepBoth') }
+			up: { action: 'dethrone', label: 'crown', icon: '◆', tone: 'amber', run: () => duel.decide('dethrone') },
+			right: { action: 'keepBoth', label: 'keep', icon: '✓', tone: 'keep', run: () => duel.decide('keepBoth') }
 		};
 	});
 	const BUTTON_ORDER: Dir[] = ['left', 'down', 'up', 'right'];
@@ -206,13 +209,17 @@
 		action();
 	};
 
-	for (const [key, dir] of [
-		['ArrowLeft', 'left'],
-		['ArrowRight', 'right'],
-		['ArrowUp', 'up'],
-		['ArrowDown', 'down']
-	] as const) {
-		createHotkey(key, () => fling(dir), () => ({ enabled: enabled && !!outcomes[dir] }));
+	// Decision keys mean the same as in the side-by-side battle; here they throw the card.
+	const dirOfAction = (action: Action) => BUTTON_ORDER.find((dir) => outcomes[dir]?.action === action);
+	for (const action of ['defend', 'dethrone', 'keepBoth', 'reel', 'keep', 'cull'] as const) {
+		onKey(
+			action,
+			() => {
+				const dir = dirOfAction(action);
+				if (dir) fling(dir);
+			},
+			() => ({ enabled: enabled && dirOfAction(action) !== undefined })
+		);
 	}
 	createHotkey('Escape', () => duel.setOverlay(null), () => ({
 		enabled: duel.overlay === 'menu',
