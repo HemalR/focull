@@ -11,7 +11,11 @@ import {
 	type MetadataSearchDto
 } from '@immich/sdk';
 import { takenAt } from './grouping';
-import type { CullGroup, SessionSource, Settings } from './types';
+import type { CullGroup, MediaFilter, SessionSource, Settings } from './types';
+
+/** The one asset type a media filter keeps; undefined keeps both. */
+const typeFor = (media: MediaFilter): AssetTypeEnum | undefined =>
+	({ photos: AssetTypeEnum.Image, videos: AssetTypeEnum.Video, both: undefined })[media];
 
 export interface AuthUser {
 	name: string;
@@ -98,6 +102,7 @@ export async function fetchSessionAssets(
 	onProgress?: (count: number) => void
 ): Promise<AssetResponseDto[]> {
 	const base: MetadataSearchDto = {
+		type: typeFor(settings.media),
 		withExif: true,
 		visibility: AssetVisibility.Timeline,
 		withStacked: false,
@@ -119,15 +124,16 @@ const TRIP_LEAD_MS = 12 * 3_600_000;
 const TRIP_DAYS = 3;
 
 /**
- * Frame a trip around a random never-judged photo. Random picks land in photo-dense stretches
- * more often, which is where culling pays off. Null when a sample turns up nothing unjudged.
+ * Frame a trip around a random never-judged photo (or video, when only videos are wanted).
+ * Random picks land in dense stretches more often, which is where culling pays off. Null
+ * when a sample turns up nothing unjudged.
  */
 export async function pickTrip(settings: Settings): Promise<Extract<SessionSource, { kind: 'trip' }> | null> {
 	const [sample, judged] = await Promise.all([
 		searchRandom({
 			randomSearchDto: {
 				size: 100,
-				type: AssetTypeEnum.Image,
+				type: typeFor(settings.media) ?? AssetTypeEnum.Image,
 				visibility: AssetVisibility.Timeline,
 				withStacked: false,
 				withExif: true
@@ -155,9 +161,12 @@ export async function fetchDuplicateGroups(settings: Settings): Promise<CullGrou
 		getAssetDuplicates(),
 		fetchTaggedAssetIds([settings.reviewedTagName, settings.tagName])
 	]);
+	const type = typeFor(settings.media);
 	const groups: CullGroup[] = [];
 	for (const dup of duplicates) {
-		const usable = dup.assets.filter((a) => !a.isTrashed && !a.stack && !judged.has(a.id));
+		const usable = dup.assets.filter(
+			(a) => !a.isTrashed && !a.stack && !judged.has(a.id) && (!type || a.type === type)
+		);
 		if (usable.length < 2) continue;
 		const suggested = new Set(dup.suggestedKeepAssetIds);
 		usable.sort((a, b) => Number(suggested.has(b.id)) - Number(suggested.has(a.id)) || takenAt(a) - takenAt(b));

@@ -7,29 +7,35 @@
 
 <script lang="ts">
 	import { getAllAlbums, type AssetResponseDto } from '@immich/sdk';
-	import { createHotkey } from '@tanstack/svelte-hotkeys';
 	import { onMount } from 'svelte';
 	import { session } from '$lib/session.svelte';
+	import { sameAlbum, type AlbumRef, type PaletteScope } from '$lib/types';
+	import PaletteShell from './PaletteShell.svelte';
 
 	interface Props {
-		/** The asset being staged — the current champion (or single). */
+		/**
+		 * 'group': the album this group and the ones after it file their keepers to (one pick, then close).
+		 * 'photo': albums for `asset` alone (toggles, stays open).
+		 */
+		scope: PaletteScope;
+		/** The photo the 'photo' scope works on. */
 		asset: AssetResponseDto;
 		notify: (msg: string) => void;
 		onClose: () => void;
 	}
 
-	let { asset, notify, onClose }: Props = $props();
+	let { scope: initialScope, asset, notify, onClose }: Props = $props();
+	let scope = $derived(initialScope);
 
-	interface Option {
-		albumId?: string;
-		name: string;
-		create?: boolean;
+	interface Option extends AlbumRef {
+		create?: true;
+		/** "No album": stops the carry-forward from this group on. */
+		none?: true;
 	}
 
 	let albums = $state.raw<AlbumResponseDto[]>(albumsCache ?? []);
 	let loading = $state(albumsCache === null);
 	let filter = $state('');
-	let highlight = $state(0);
 
 	onMount(() => {
 		if (albumsCache !== null) return;
@@ -57,195 +63,68 @@
 		return i === query.length ? 1 : 0;
 	};
 
+	const groupAlbum = $derived(session.groupAlbum());
+
 	const options = $derived.by((): Option[] => {
 		const q = filter.trim().toLowerCase();
-		// Real albums plus id-less albums staged earlier this session.
-		const pool: Option[] = [
-			...session.stagedAlbums.filter((s) => !s.albumId).map((s) => ({ name: s.name })),
-			...albums.map((a) => ({ albumId: a.id, name: a.albumName }))
-		];
+		// Real albums, plus albums picked earlier this session that only get created at commit.
+		const pending = [...session.stagedAlbums, ...session.albumRuns.flatMap((r) => r.album ?? [])]
+			.filter((a, i, all) => !a.albumId && all.findIndex((b) => sameAlbum(a, b)) === i)
+			.map((a) => ({ name: a.name }));
+		const pool: Option[] = [...pending, ...albums.map((a) => ({ albumId: a.id, name: a.albumName }))];
 		const matched = pool
 			.filter((o) => score(o.name, q) > 0)
 			.sort((a, b) => score(b.name, q) - score(a.name, q));
 		const exact = pool.some((o) => o.name.toLowerCase() === q);
-		return q && !exact ? [{ name: filter.trim(), create: true }, ...matched] : matched;
+		const create: Option[] = q && !exact ? [{ name: filter.trim(), create: true }] : [];
+		const none: Option[] = scope === 'group' && groupAlbum && !q ? [{ name: 'no album', none: true }] : [];
+		return [...create, ...matched, ...none];
 	});
 
-	const hl = $derived(Math.min(highlight, Math.max(options.length - 1, 0)));
+	const isOn = (option: Option): boolean => {
+		if (option.none) return false;
+		if (scope === 'group') return groupAlbum !== null && sameAlbum(groupAlbum, option);
+		return session.albumsOf(asset.id).some((a) => sameAlbum(a, option));
+	};
 
-	const isStaged = (option: Option): boolean =>
-		session.stagedAlbums.some(
-			(s) =>
-				(option.albumId ? s.albumId === option.albumId : !s.albumId && s.name === option.name) &&
-				s.assetIds.includes(asset.id)
-		);
-
-	function pick(option: Option | undefined) {
-		if (!option) return;
-		const staged = session.toggleAlbumStage(
-			{ albumId: option.albumId, name: option.name },
-			asset.id
-		);
-		notify(
-			staged
-				? `${asset.originalFileName} staged → ${option.name} — applies at commit`
-				: `${asset.originalFileName} unstaged from ${option.name}`
-		);
+	function pick(option: Option) {
+		const album = { albumId: option.albumId, name: option.name };
+		if (scope === 'group') {
+			session.setGroupAlbum(option.none ? null : album);
+			notify(option.none ? 'no album from this group on' : `◇ ${option.name} — this group and the ones after it`);
+			onClose();
+			return;
+		}
+		const joined = session.togglePhotoAlbum(album, asset.id);
+		notify(`${asset.originalFileName} ${joined ? '→' : 'left out of'} ${option.name}`);
 	}
-
-	const opts = { conflictBehavior: 'allow', ignoreInputs: false } as const;
-	createHotkey('Escape', () => onClose(), opts);
-	createHotkey('Enter', () => pick(options[hl]), opts);
-	createHotkey('ArrowDown', () => (highlight = Math.min(hl + 1, options.length - 1)), opts);
-	createHotkey('ArrowUp', () => (highlight = Math.max(hl - 1, 0)), opts);
 </script>
 
-<div class="overlay">
-	<button type="button" class="backdrop" aria-label="close album palette" onclick={onClose}></button>
-	<div class="card palette" role="dialog" aria-modal="true" aria-label="stage to album">
-		<header>
-			<span class="label">stage to album</span>
-			<span class="muted mono target" title={asset.originalFileName}>{asset.originalFileName}</span>
-		</header>
-		<!-- svelte-ignore a11y_autofocus -->
-		<input
-			type="text"
-			placeholder="filter albums — or type a new name…"
-			autofocus
-			bind:value={filter}
-			oninput={() => (highlight = 0)}
-		/>
-		{#if loading}
-			<p class="muted mono">loading albums…</p>
-		{:else}
-			<ul>
-				{#each options as option, i (option.create ? '\0create' : (option.albumId ?? option.name))}
-					<li>
-						<button
-							type="button"
-							class={['row', i === hl && 'hl']}
-							onclick={() => pick(option)}
-							{@attach (el) => {
-								if (i === hl) el.scrollIntoView({ block: 'nearest' });
-							}}
-						>
-							{#if option.create}
-								<span class="create">create "{option.name}"</span>
-							{:else}
-								<span>{option.name}{option.albumId ? '' : ' (new)'}</span>
-							{/if}
-							{#if isStaged(option)}<span class="check mono">✓</span>{/if}
-						</button>
-					</li>
-				{:else}
-					<li class="muted mono empty">no albums</li>
-				{/each}
-			</ul>
-		{/if}
-		<p class="muted mono help">↑↓ move · ↵ stage/unstage · esc close</p>
-	</div>
-</div>
+{#snippet row(option: Option)}
+	{#if option.create}
+		<span class="accent">create "{option.name}"</span>
+	{:else if option.none}
+		<span class="muted">no album from here on</span>
+	{:else}
+		<span>{option.name}{option.albumId ? '' : ' (new)'}</span>
+	{/if}
+	{#if isOn(option)}<span class="check mono">✓</span>{/if}
+{/snippet}
 
-<style>
-	.overlay {
-		position: fixed;
-		inset: 0;
-		z-index: 40;
-		display: grid;
-		place-items: center;
-	}
-
-	.backdrop {
-		position: absolute;
-		inset: 0;
-		background: rgb(0 0 0 / 0.55);
-		cursor: default;
-	}
-
-	/* Phones: sit high so the on-screen keyboard doesn't cover the list. */
-	@media (pointer: coarse), (max-width: 760px) {
-		.overlay {
-			place-items: start center;
-			padding-top: calc(10dvh + env(safe-area-inset-top));
-		}
-
-		.row {
-			padding: 12px 10px;
-		}
-
-		.help {
-			display: none;
-		}
-	}
-
-	.palette {
-		position: relative;
-		width: min(440px, 92vw);
-		padding: 18px 20px;
-		display: flex;
-		flex-direction: column;
-		gap: 12px;
-	}
-
-	header {
-		display: flex;
-		justify-content: space-between;
-		align-items: baseline;
-		gap: 12px;
-	}
-
-	.target {
-		font-size: 11px;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	ul {
-		list-style: none;
-		margin: 0;
-		padding: 0;
-		max-height: 260px;
-		overflow-y: auto;
-	}
-
-	.row {
-		display: flex;
-		justify-content: space-between;
-		gap: 12px;
-		width: 100%;
-		padding: 8px 10px;
-		border-radius: 4px;
-		text-align: left;
-	}
-
-	.row:hover {
-		background: var(--panel2);
-	}
-
-	.row.hl {
-		background: var(--panel2);
-		outline: 1px solid var(--amber-dim);
-	}
-
-	.create {
-		color: var(--amber);
-	}
-
-	.check {
-		color: var(--keep);
-	}
-
-	.empty {
-		padding: 8px 10px;
-	}
-
-	.help {
-		margin: 0;
-		font-size: 11px;
-	}
-
-	p {
-		margin: 0;
-	}
-</style>
+<PaletteShell
+	label="albums"
+	{scope}
+	onScope={(s) => (scope = s)}
+	scopes={{ group: 'this group onward', photo: 'just this photo' }}
+	target={asset.originalFileName}
+	bind:filter
+	placeholder="filter albums — or type a new name…"
+	{options}
+	key={(o) => (o.create ? '\0create' : o.none ? '\0none' : (o.albumId ?? o.name))}
+	{row}
+	status={loading ? 'loading albums…' : undefined}
+	empty="no albums"
+	enter={scope === 'group' ? 'set' : 'add / remove'}
+	onPick={pick}
+	{onClose}
+/>

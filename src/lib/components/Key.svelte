@@ -1,14 +1,18 @@
 <script lang="ts">
 	import { keyLabel, keys, rebindable, type Action } from '$lib/keymap.svelte';
 
-	/** An action's current key. Shift-click records a new one; it reads "press a key…" meanwhile. */
-	let { action }: { action: Action } = $props();
+	/**
+	 * One of an action's keys (its main one unless `slot` says otherwise). Shift-click records
+	 * a new one; it reads "press a key…" meanwhile.
+	 */
+	let { action, slot = 0 }: { action: Action; slot?: number } = $props();
 
-	const recording = $derived(keys.recording === action);
+	const recording = $derived(keys.isRecording(action, slot));
+	const key = $derived(keys.of(action)[slot]);
 </script>
 
-<kbd class={[recording && 'recording']} {@attach rebindable(action)}>
-	{recording ? 'press a key…' : keyLabel(keys.of(action))}
+<kbd class={[recording && 'recording']} {@attach rebindable(action, slot)}>
+	{recording ? 'press a key…' : key ? keyLabel(key) : '—'}
 </kbd>
 
 <style>

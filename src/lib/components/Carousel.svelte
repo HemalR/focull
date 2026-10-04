@@ -24,9 +24,24 @@
 		kept: '✓',
 		reel: '◉'
 	};
+
+	let strip: HTMLElement;
+	let shownGroup: string | undefined;
+
+	// Keep the current challenger centred: glide there after each decision, jump on a new group.
+	$effect(() => {
+		const thumb = state.queue[0] === undefined ? undefined : strip.children[state.queue[0]];
+		if (!(thumb instanceof HTMLElement)) return;
+		const jump = group.id !== shownGroup || matchMedia('(prefers-reduced-motion: reduce)').matches;
+		shownGroup = group.id;
+		strip.scrollTo({
+			left: thumb.offsetLeft - (strip.clientWidth - thumb.offsetWidth) / 2,
+			behavior: jump ? 'instant' : 'smooth'
+		});
+	});
 </script>
 
-<div class="carousel">
+<div class="carousel" bind:this={strip}>
 	{#each group.assets as asset, idx (asset.id)}
 		{@const st = status(idx)}
 		{#if st === 'undecided'}
@@ -49,6 +64,8 @@
 
 <style>
 	.carousel {
+		/* The thumbs' offsetParent, so their offsetLeft is measured within the strip. */
+		position: relative;
 		display: flex;
 		gap: 8px;
 		padding: 8px 14px;

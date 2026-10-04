@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { Duel, type DuelAction, type DuelProps } from '$lib/duel.svelte';
-	import { onKey, type Action } from '$lib/keymap.svelte';
+	import { onKey, rebindable, type Action } from '$lib/keymap.svelte';
 	import { session } from '$lib/session.svelte';
 	import AlbumPalette from './AlbumPalette.svelte';
+	import LocationPalette from './LocationPalette.svelte';
 	import Pane from './Pane.svelte';
 	import Carousel from './Carousel.svelte';
 	import KeyLegend, { type LegendItem } from './KeyLegend.svelte';
@@ -11,6 +12,7 @@
 	const props: DuelProps = $props();
 	const duel = new Duel(() => props);
 	const tally = $derived(session.tally);
+	const groupAlbum = $derived(session.groupAlbum());
 
 	type Side = 'champion' | 'challenger';
 	/**
@@ -77,8 +79,10 @@
 	const legend = $derived.by((): LegendItem[] => {
 		const shared: LegendItem[] = [
 			{ action: 'album', label: 'album', run: () => duel.setOverlay('album') },
+			{ action: 'location', label: 'location', run: () => duel.setOverlay('location') },
 			{ action: 'skip', label: 'skip group — stays unreviewed', run: duel.skip },
 			{ action: 'undo', label: 'undo', run: duel.undo },
+			{ action: 'review', label: 'review & commit now', run: props.onReview },
 			{ action: ['liftChallenger', 'liftChampion'], label: 'hold — full screen' },
 			{ action: 'zoom', label: 'zoom', run: duel.toggleZoom },
 			{ keys: '?', label: 'shortcuts', run: props.onHelp }
@@ -121,6 +125,15 @@
 		<span class="brand">focull<span class="dot">.</span></span>
 		<span class="mono muted">group {session.gi + 1}/{session.groups.length}</span>
 		<span class="label">{duel.label}</span>
+		<button
+			type="button"
+			class={['album', 'mono', !groupAlbum && 'none']}
+			title="album for this group and the ones after it"
+			onclick={() => duel.setOverlay('album')}
+			{@attach rebindable('album')}
+		>
+			◇ {groupAlbum?.name ?? 'no album'}
+		</button>
 		<span class="tallies mono">
 			<span class="t-keep" title="kept">✓ {tally.kept}</span>
 			<span class="t-rej" title="culled">✕ {tally.culled}</span>
@@ -135,14 +148,15 @@
 				asset={duel.champion}
 				kind="single"
 				lifted={lifted === 'champion'}
-				stagedCount={session.stagedCount(duel.champion.id)} />
+				albumCount={session.albumsOf(duel.champion.id).length}
+			/>
 		{:else if duel.champion && duel.challenger && duel.state && duel.group}
 			<Pane
 				{...view}
 				asset={duel.champion}
 				kind="champion"
 				lifted={lifted === 'champion'}
-				stagedCount={session.stagedCount(duel.champion.id)}
+				albumCount={session.albumsOf(duel.champion.id).length}
 				onpick={() => duel.decide('defend')}
 				title="champion stays (defend)"
 			/>
@@ -172,8 +186,17 @@
 	/>
 </div>
 
-{#if duel.overlay === 'album' && duel.champion}
-	<AlbumPalette asset={duel.champion} notify={props.notify} onClose={() => duel.setOverlay(null)} />
+{#if duel.albumScope && duel.champion}
+	<AlbumPalette
+		scope={duel.albumScope}
+		asset={duel.champion}
+		notify={props.notify}
+		onClose={() => duel.setOverlay(null)}
+	/>
+{/if}
+
+{#if duel.locationScope && duel.champion}
+	<LocationPalette scope={duel.locationScope} asset={duel.champion} onClose={() => duel.setOverlay(null)} />
 {/if}
 
 <style>
@@ -191,6 +214,27 @@
 		border-bottom: 1px solid var(--line);
 		background: var(--panel);
 		font-size: 12px;
+	}
+
+	.album {
+		max-width: 28ch;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		padding: 2px 8px;
+		border: 1px solid var(--amber-dim);
+		border-radius: 4px;
+		color: var(--amber);
+		font-size: 11px;
+	}
+
+	.album.none {
+		border-color: var(--line);
+		color: var(--mut);
+	}
+
+	.album:hover {
+		color: var(--ink);
 	}
 
 	.tallies {

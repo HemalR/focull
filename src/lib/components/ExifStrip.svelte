@@ -1,28 +1,26 @@
 <script lang="ts">
-	import { AssetTypeEnum, type AssetResponseDto } from '@immich/sdk';
-	import { fmtDuration, localTime } from '$lib/format';
+	import type { AssetResponseDto } from '@immich/sdk';
+	import { localDate, localTime } from '$lib/format';
+	import { placeLabel } from '$lib/places';
+	import { session } from '$lib/session.svelte';
 
+	/**
+	 * Where and when a photo was taken: "Porto, Portugal  Jul 14, 2018 · 20:14:37" — or where
+	 * it's moving to at commit (⌖, amber). Filename on hover.
+	 */
 	let { asset }: { asset: AssetResponseDto } = $props();
 
-	const camera = $derived.by(() => {
-		const exif = asset.exifInfo;
-		if (!exif) return '';
-		const parts: string[] = [];
-		if (exif.fNumber) parts.push(`ƒ/${exif.fNumber}`);
-		if (exif.exposureTime) parts.push(`${exif.exposureTime}s`);
-		if (exif.iso) parts.push(`ISO ${exif.iso}`);
-		return parts.join(' ');
-	});
+	const planned = $derived(session.plannedPlace(asset));
+	const place = $derived(placeLabel(asset.exifInfo));
 </script>
 
-<div class="exif">
-	<span class="name" title={asset.originalFileName}>{asset.originalFileName}</span>
-	<span>{localTime(asset.localDateTime)}</span>
-	{#if asset.type === AssetTypeEnum.Video}
-		<span class="dur">▶ {fmtDuration(asset.duration)}</span>
-	{:else if camera}
-		<span>{camera}</span>
+<div class="exif" title={asset.originalFileName}>
+	{#if planned}
+		<span class="place planned" title="location set at commit">⌖ {planned.label}</span>
+	{:else if place}
+		<span class="place">{place}</span>
 	{/if}
+	<span>{localDate(asset.localDateTime)} · {localTime(asset.localDateTime)}</span>
 </div>
 
 <style>
@@ -38,14 +36,14 @@
 		white-space: nowrap;
 	}
 
-	.name {
+	.place {
 		color: var(--ink);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		min-width: 0;
 	}
 
-	.dur {
-		color: var(--reel);
+	.planned {
+		color: var(--amber);
 	}
 </style>

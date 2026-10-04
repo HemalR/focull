@@ -25,6 +25,16 @@ export interface GroupState {
 
 export type RejectAction = 'tag' | 'archive' | 'trash';
 
+/** Which media a session takes in, in the order F cycles through them. */
+export const MEDIA_FILTERS = ['photos', 'videos', 'both'] as const;
+export type MediaFilter = (typeof MEDIA_FILTERS)[number];
+
+export const MEDIA_LABELS: Record<MediaFilter, string> = {
+	photos: 'photos only',
+	videos: 'videos only',
+	both: 'photos + videos'
+};
+
 export interface Settings {
 	rejectAction: RejectAction;
 	/** Tag applied to culled assets (when rejectAction is 'tag'). */
@@ -35,6 +45,8 @@ export interface Settings {
 	sceneGapSeconds: number;
 	/** Max gap between end of one clip and start of the next to count as one event. */
 	videoWindowSeconds: number;
+	/** Which media sessions fetch (F in the picker cycles it). */
+	media: MediaFilter;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -42,14 +54,44 @@ export const DEFAULT_SETTINGS: Settings = {
 	tagName: 'focull/culled',
 	reviewedTagName: 'focull/reviewed',
 	sceneGapSeconds: 300,
-	videoWindowSeconds: 600
+	videoWindowSeconds: 600,
+	media: 'both'
 };
 
-/** Album assignment staged mid-battle (A key), applied at commit. On-the-spot albums have no id yet. */
-export interface StagedAlbum {
+/** An Immich album, or one created at commit: no id yet, so it's matched by name. */
+export interface AlbumRef {
 	albumId?: string;
 	name: string;
+}
+
+export const sameAlbum = (a: AlbumRef, b: AlbumRef): boolean =>
+	a.albumId ? a.albumId === b.albumId : !b.albumId && a.name === b.name;
+
+/** Assets bound for an album at commit. */
+export interface StagedAlbum extends AlbumRef {
 	assetIds: string[];
+}
+
+/** A location to give photos at commit, labelled the way Immich will show it: "Porto, Portugal". */
+export interface Place {
+	latitude: number;
+	longitude: number;
+	label: string;
+}
+
+/** Photos to move to a place at commit. */
+export interface PlannedPlace {
+	place: Place;
+	assetIds: string[];
+}
+
+/** What an album or location palette works on: the current group, or one photo. */
+export type PaletteScope = 'group' | 'photo';
+
+/** From group `from` on, every keeper goes to `album` (null: none), until the next run starts. */
+export interface AlbumRun {
+	from: number;
+	album: AlbumRef | null;
 }
 
 export type SessionSource =

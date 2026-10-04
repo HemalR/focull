@@ -7,6 +7,8 @@
 	import type { SessionSource } from '$lib/types';
 	import SettingsModal from './SettingsModal.svelte';
 	import { onKey, rebindable } from '$lib/keymap.svelte';
+	import { saveSettings } from '$lib/persist';
+	import { MEDIA_FILTERS, MEDIA_LABELS, type MediaFilter } from '$lib/types';
 	import Key from './Key.svelte';
 	import KeyLegend from './KeyLegend.svelte';
 
@@ -105,6 +107,13 @@
 	const openRange = () => (mode = 'range');
 	const openSettings = () => (settingsOpen = true);
 
+	function setMedia(media: MediaFilter) {
+		session.settings.media = media;
+		saveSettings(session.settings);
+	}
+	const cycleMedia = () =>
+		setMedia(MEDIA_FILTERS[(MEDIA_FILTERS.indexOf(session.settings.media) + 1) % MEDIA_FILTERS.length]);
+
 	const closed = () => ({ enabled: !settingsOpen });
 	onKey('trip', () => onTrip(), closed);
 	onKey('unreviewed', startUnreviewed, closed);
@@ -112,6 +121,7 @@
 	onKey('pickAlbum', () => void openAlbums(), closed);
 	onKey('range', openRange, closed);
 	onKey('duplicates', startDuplicates, closed);
+	onKey('media', cycleMedia, closed);
 	onKey('settings', openSettings, closed);
 	createHotkey('Escape', () => (mode = 'none'), () => ({
 		conflictBehavior: 'allow',
@@ -164,7 +174,23 @@
 			</div>
 		{/if}
 
-		<h1 class="label">pick a session source</h1>
+		<div class="heading">
+			<h1 class="label">pick a session source</h1>
+			<div class="media mono" role="radiogroup" aria-label="media to include" {@attach rebindable('media')}>
+				<Key action="media" />
+				{#each MEDIA_FILTERS as media (media)}
+					<button
+						type="button"
+						role="radio"
+						aria-checked={session.settings.media === media}
+						class={[session.settings.media === media && 'on']}
+						onclick={() => setMedia(media)}
+					>
+						{MEDIA_LABELS[media]}
+					</button>
+				{/each}
+			</div>
+		</div>
 
 		<div class="sources">
 			<button type="button" class={['card', 'source']} onclick={onTrip} {@attach rebindable('trip')}>
@@ -280,6 +306,7 @@
 			{ action: 'pickAlbum', label: 'album', run: () => void openAlbums() },
 			{ action: 'range', label: 'date range', run: openRange },
 			{ action: 'duplicates', label: 'duplicates', run: startDuplicates },
+			{ action: 'media', label: MEDIA_LABELS[session.settings.media], run: cycleMedia },
 			{ action: 'settings', label: 'settings', run: openSettings },
 			{ keys: '?', label: 'shortcuts', run: onHelp }
 		]}
@@ -366,6 +393,37 @@
 	h1 {
 		margin: 0;
 		font-size: 11px;
+	}
+
+	.heading {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		flex-wrap: wrap;
+		gap: 10px;
+	}
+
+	.media {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		font-size: 11px;
+	}
+
+	.media button {
+		padding: 3px 8px;
+		border: 1px solid transparent;
+		border-radius: 4px;
+		color: var(--mut);
+	}
+
+	.media button:hover {
+		color: var(--ink);
+	}
+
+	.media .on {
+		color: var(--amber);
+		border-color: var(--amber-dim);
 	}
 
 	.sources {

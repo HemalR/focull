@@ -4,6 +4,8 @@
 	import { durationMs, fmtDuration, plural } from '$lib/format';
 	import { onKey, rebindable } from '$lib/keymap.svelte';
 	import { session } from '$lib/session.svelte';
+	import { sameAlbum, type PaletteScope } from '$lib/types';
+	import AlbumPalette from './AlbumPalette.svelte';
 	import Key from './Key.svelte';
 
 	interface Props {
@@ -12,9 +14,19 @@
 		onNext: () => void;
 		/** Undo re-opened the duel (queue no longer empty) — back to battle. */
 		onReopen: () => void;
+		/** The album palette opened/closed — the page holds Esc back meanwhile. */
+		onOverlay: (open: boolean) => void;
+		/** Review & commit the finished groups now (C). */
+		onReview: () => void;
 	}
 
-	let { last, notify, onNext, onReopen }: Props = $props();
+	let { last, notify, onNext, onReopen, onOverlay, onReview }: Props = $props();
+
+	let albumScope = $state<PaletteScope | null>(null);
+	const openAlbums = (scope: PaletteScope | null) => {
+		albumScope = scope;
+		onOverlay(scope !== null);
+	};
 
 	const group = $derived(session.group);
 	const gstate = $derived(session.current);
@@ -35,6 +47,17 @@
 			: []
 	);
 	const reelTotal = $derived(reelAssets.reduce((sum, a) => sum + durationMs(a.duration), 0));
+
+	const groupAlbum = $derived(session.groupAlbum());
+	/** Survivors headed for the group's album. */
+	const filed = $derived(
+		group && gstate && groupAlbum
+			? group.assets.filter(
+					(a, i) =>
+						gstate.fates[i] !== 'rejected' && session.albumsOf(a.id).some((x) => sameAlbum(x, groupAlbum))
+				).length
+			: 0
+	);
 
 	const culledLine = $derived.by(() => {
 		const { rejectAction, tagName } = session.settings;
@@ -60,9 +83,13 @@
 		if ((session.current?.queue.length ?? 0) > 0) onReopen();
 	}
 
-	onKey('confirm', () => onNext());
-	onKey('cull', cullWinner, () => ({ enabled: !winnerCulled }));
-	onKey('undo', undo);
+	const closed = () => ({ enabled: albumScope === null });
+	onKey('confirm', () => onNext(), closed);
+	onKey('cull', cullWinner, () => ({ enabled: albumScope === null && !winnerCulled }));
+	onKey('undo', undo, closed);
+	onKey('album', () => openAlbums('group'), closed);
+	onKey('albumPhoto', () => openAlbums('photo'), closed);
+	onKey('review', () => onReview(), () => ({ enabled: albumScope === null && !last }));
 </script>
 
 <div class="overlay">
@@ -90,6 +117,9 @@
 			{#if culled === 0 && kept === 0 && reelAssets.length < 2}
 				<li class="muted">everything survived</li>
 			{/if}
+			{#if groupAlbum && filed > 0}
+				<li class="album">◇ {plural(filed, 'keeper')} → {groupAlbum.name}</li>
+			{/if}
 		</ul>
 		<button type="button" class="btn" onclick={onNext} {@attach rebindable('confirm')}>
 			{last ? 'review' : 'next group'} <Key action="confirm" />
@@ -100,10 +130,22 @@
 					<Key action="cull" /> cull this one too
 				</button>
 			{/if}
+			<button type="button" class="chip" onclick={() => openAlbums('group')} {@attach rebindable('album')}>
+				<Key action="album" /> album
+			</button>
 			<button type="button" class="chip" onclick={undo} {@attach rebindable('undo')}><Key action="undo" /> undo</button>
+			{#if !last}
+				<button type="button" class="chip" onclick={onReview} {@attach rebindable('review')}>
+					<Key action="review" /> review & commit now
+				</button>
+			{/if}
 		</span>
 	</div>
 </div>
+
+{#if albumScope && winner}
+	<AlbumPalette scope={albumScope} asset={winner} {notify} onClose={() => openAlbums(null)} />
+{/if}
 
 <style>
 	.overlay {
@@ -209,6 +251,10 @@
 
 	.reel {
 		color: var(--reel);
+	}
+
+	.album {
+		color: var(--amber);
 	}
 
 	.chips {

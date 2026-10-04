@@ -4,6 +4,7 @@ import { onKey } from './keymap.svelte';
 import { previewUrl } from './immich';
 import { prefetchImage } from './prefetch';
 import { session } from './session.svelte';
+import type { PaletteScope } from './types';
 
 /** Props shared by both battle UIs: the side-by-side panes (Battle) and the touch deck (Swipe). */
 export interface DuelProps {
@@ -18,6 +19,8 @@ export interface DuelProps {
 	onHelp: () => void;
 	/** Back to the session picker (Esc on keyboards; the deck has a menu entry). */
 	onExit: () => void;
+	/** Review & commit the finished groups now (C), leaving the rest for later. */
+	onReview: () => void;
 	/** An overlay (album palette, menu) opened/closed — the page gates its Escape handler on this. */
 	onOverlay: (open: boolean) => void;
 }
@@ -28,7 +31,12 @@ export interface DuelProps {
  */
 export type DuelAction = 'defend' | 'dethrone' | 'keepBoth' | 'reel';
 
-export type Overlay = 'album' | 'menu';
+type Palette = 'album' | 'location';
+export type Overlay = Palette | `${Palette}Photo` | 'menu';
+
+/** Which scope the open `palette` is in, or null when it isn't the one open. */
+const scopeOf = (overlay: Overlay | null, palette: Palette): PaletteScope | null =>
+	overlay === palette ? 'group' : overlay === `${palette}Photo` ? 'photo' : null;
 
 /**
  * Battle logic both UIs share: who's up, the decisions (with their toasts), view state
@@ -62,6 +70,9 @@ export class Duel {
 	/** One sound state for every pane; default muted, sticky for the session. */
 	muted = $state(true);
 	overlay = $state<Overlay | null>(null);
+	/** The open album palette's scope: the group's (A) or one photo's (Shift+A). Same for locations (L). */
+	albumScope = $derived(scopeOf(this.overlay, 'album'));
+	locationScope = $derived(scopeOf(this.overlay, 'location'));
 
 	// Props-dependent state is assigned in the constructor, once props are in hand.
 	canReel: boolean;
@@ -95,9 +106,13 @@ export class Duel {
 
 		const when = (enabled: () => boolean) => () => ({ enabled: enabled() });
 		onKey('undo', this.undo, when(() => this.keysActive));
+		onKey('review', () => this.#props().onReview(), when(() => this.keysActive));
 		onKey('zoom', this.toggleZoom, when(() => this.keysActive));
 		onKey('skip', this.skip, when(() => this.keysActive));
 		onKey('album', () => this.setOverlay('album'), when(() => this.keysActive && !!this.champion));
+		onKey('albumPhoto', () => this.setOverlay('albumPhoto'), when(() => this.keysActive && !!this.champion));
+		onKey('location', () => this.setOverlay('location'), when(() => this.keysActive && !!this.champion));
+		onKey('locationPhoto', () => this.setOverlay('locationPhoto'), when(() => this.keysActive && !!this.champion));
 		onKey('mute', this.toggleMute, when(() => this.keysActive && this.group?.kind === 'video'));
 	}
 

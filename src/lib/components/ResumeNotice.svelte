@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { calendarDate, localDate, plural, timeAgo } from '$lib/format';
 	import { session } from '$lib/session.svelte';
+	import { MEDIA_LABELS } from '$lib/types';
 
 	/**
 	 * Says which saved session the app reopened, until the user does anything at all: any key,
@@ -37,7 +38,11 @@
 />
 
 <aside class="resume mono" role="status" bind:this={box}>
-	<span><span class="icon">↺</span> resumed {what}</span>
+	<span>
+		<span class="icon">↺</span> resumed {what}{session.settings.media === 'both'
+			? ''
+			: ` · ${MEDIA_LABELS[session.settings.media]}`}
+	</span>
 	<span class="muted">
 		group {session.gi + 1} of {session.groups.length} · {plural(session.decisionCount, 'decision')} · started
 		{timeAgo(session.startedAt)}

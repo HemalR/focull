@@ -7,6 +7,7 @@
 	import { session } from '$lib/session.svelte';
 	import { thumbhashStyle } from '$lib/thumbhash';
 	import AlbumPalette from './AlbumPalette.svelte';
+	import LocationPalette from './LocationPalette.svelte';
 	import Carousel from './Carousel.svelte';
 	import ExifStrip from './ExifStrip.svelte';
 
@@ -17,6 +18,7 @@
 	const props: DuelProps = $props();
 	const duel = new Duel(() => props);
 	const tally = $derived(session.tally);
+	const groupAlbum = $derived(session.groupAlbum());
 
 	type Dir = 'left' | 'right' | 'up' | 'down';
 	interface Outcome {
@@ -263,6 +265,14 @@
 	<header class="top">
 		<span class="mono muted">{session.gi + 1}/{session.groups.length}</span>
 		<span class="label where">{duel.label}</span>
+		<button
+			type="button"
+			class={['album', 'mono', !groupAlbum && 'none']}
+			aria-label="album for this group onward"
+			onclick={() => duel.setOverlay('album')}
+		>
+			◇{groupAlbum ? ` ${groupAlbum.name}` : ''}
+		</button>
 		<span class="tallies mono">
 			<span class="t-keep">✓ {tally.kept}</span>
 			<span class="t-rej">✕ {tally.culled}</span>
@@ -351,7 +361,16 @@
 		></button>
 		<div class="card sheet" role="menu">
 			<button type="button" role="menuitem" onclick={() => duel.setOverlay('album')}>
-				◇ add to an album
+				◇ album for this group onward{groupAlbum ? `: ${groupAlbum.name}` : ''}
+			</button>
+			<button type="button" role="menuitem" onclick={() => duel.setOverlay('albumPhoto')}>
+				◇ just this photo — add to / remove from an album
+			</button>
+			<button type="button" role="menuitem" onclick={() => duel.setOverlay('location')}>
+				⌖ location for photos here without one
+			</button>
+			<button type="button" role="menuitem" onclick={() => duel.setOverlay('locationPhoto')}>
+				⌖ location for just this photo
 			</button>
 			<button type="button" role="menuitem" onclick={fromMenu(() => (duel.zoomed = !duel.zoomed))}>
 				⌕ {duel.zoomed ? 'zoom out' : 'zoom in'}
@@ -359,14 +378,26 @@
 			<button type="button" role="menuitem" onclick={fromMenu(duel.skip)}>
 				⤼ skip this scene — stays unreviewed
 			</button>
+			<button type="button" role="menuitem" onclick={fromMenu(props.onReview)}>
+				✓ review & commit what's done
+			</button>
 			<button type="button" role="menuitem" onclick={fromMenu(props.onHelp)}>? gestures & keys</button>
 			<button type="button" role="menuitem" onclick={fromMenu(props.onExit)}>← back to sessions</button>
 		</div>
 	</div>
 {/if}
 
-{#if duel.overlay === 'album' && shown}
-	<AlbumPalette asset={shown} notify={props.notify} onClose={() => duel.setOverlay(null)} />
+{#if duel.albumScope && shown}
+	<AlbumPalette
+		scope={duel.albumScope}
+		asset={shown}
+		notify={props.notify}
+		onClose={() => duel.setOverlay(null)}
+	/>
+{/if}
+
+{#if duel.locationScope && shown}
+	<LocationPalette scope={duel.locationScope} asset={shown} onClose={() => duel.setOverlay(null)} />
 {/if}
 
 <style>
@@ -387,6 +418,25 @@
 		border-bottom: 1px solid var(--line);
 		background: var(--panel);
 		font-size: 12px;
+	}
+
+	.album {
+		flex-shrink: 1;
+		max-width: 32vw;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		padding: 2px 7px;
+		border: 1px solid var(--amber-dim);
+		border-radius: 4px;
+		color: var(--amber);
+		font-size: 11px;
+	}
+
+	.album.none {
+		border-color: var(--line);
+		color: var(--mut);
 	}
 
 	.where {

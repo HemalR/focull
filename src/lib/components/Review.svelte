@@ -5,7 +5,7 @@
 	import { thumbhashStyle } from '$lib/thumbhash';
 	import { durationMs, fmtDuration, plural } from '$lib/format';
 	import { session } from '$lib/session.svelte';
-	import type { Fate } from '$lib/types';
+	import { sameAlbum, type AlbumRef, type Fate } from '$lib/types';
 	import { onKey, rebindable } from '$lib/keymap.svelte';
 	import Key from './Key.svelte';
 	import KeyLegend from './KeyLegend.svelte';
@@ -17,11 +17,13 @@
 		/** A fate was edited — recompute the plan. */
 		onChanged: () => void;
 		onCommit: () => void;
-		/** Abandon the session, back to the picker (Esc). */
+		/** Esc: back to culling while groups are left, else abandon the session for the picker. */
 		onExit: () => void;
+		/** Groups not culled yet — they wait for after this commit. */
+		left: number;
 	}
 
-	let { plan, stitchAvailable, notify, onChanged, onCommit, onExit }: Props = $props();
+	let { plan, stitchAvailable, notify, onChanged, onCommit, onExit, left }: Props = $props();
 
 	interface Thumb {
 		asset: AssetResponseDto;
@@ -53,7 +55,7 @@
 	const keepers = $derived.by(() => {
 		const out: Thumb[] = [];
 		session.groups.forEach((g, gi) => {
-			if (!session.isJudged(gi)) return;
+			if (!session.isCommittable(gi)) return;
 			const s = session.states[gi];
 			g.assets.forEach((asset, ai) => {
 				const fate = s.fates[ai];
@@ -95,6 +97,13 @@
 		onChanged();
 	}
 
+	/** Take a keeper out of its group's album, or put it back. */
+	function toggleFiled(thumb: Thumb, album: AlbumRef) {
+		const joined = session.togglePhotoAlbum(album, thumb.asset.id, thumb.gi);
+		notify(`${thumb.asset.originalFileName} ${joined ? 'back in' : 'left out of'} ${album.name}`);
+		onChanged();
+	}
+
 	const sentence = $derived.by(() => {
 		const { rejectAction, tagName, reviewedTagName } = session.settings;
 		const parts: string[] = [];
@@ -106,6 +115,8 @@
 		if (stacks > 0) parts.push(`stack culled shots behind their winners (${plural(stacks, 'stack')})`);
 		if (plan.reels.length > 0) parts.push(`stitch ${plural(plan.reels.length, 'reel')} (${plural(reelClips, 'clip')})`);
 		if (plan.albums.length > 0) parts.push(`update ${plural(plan.albums.length, 'album')}`);
+		const located = plan.locations.reduce((sum, l) => sum + l.assetIds.length, 0);
+		if (located > 0) parts.push(`set the location of ${plural(located, 'asset')}`);
 		if (plan.reviewedIds.length > 0) {
 			parts.push(`mark all ${plural(plan.reviewedIds.length, 'processed asset')} #${reviewedTagName} so future sessions skip them`);
 		}
@@ -140,7 +151,7 @@
 	<header>
 		<span class="brand">focull<span class="dot">.</span></span>
 		<span class="label">review</span>
-		<span class="muted mono hint">tap a thumb to change its fate</span>
+		<span class="muted mono hint">tap a thumb to change its fate · ◇ takes a keeper out of its album</span>
 	</header>
 
 	<main>
@@ -150,6 +161,13 @@
 			<div class="card tile"><strong class="reel">{reelClips}</strong><span class="label">reel clips</span></div>
 			<div class="card tile"><strong>{stacks}</strong><span class="label">stacks</span></div>
 		</div>
+
+		{#if left > 0}
+			<p class="mono skipped">
+				{plural(left, 'group')} still to cull — commit these now and carry on after, or
+				<button type="button" class="link" onclick={onExit}>keep culling first</button>
+			</p>
+		{/if}
 
 		{#if session.skipped.length > 0}
 			<p class="muted mono skipped">
@@ -161,7 +179,23 @@
 			<section>
 				<h2 class="label">keepers</h2>
 				<div class="thumbs keepers">
-					{#each keepers as thumb (thumb.asset.id)}{@render mini(thumb)}{/each}
+					{#each keepers as thumb (thumb.asset.id)}
+						{@const album = session.groupAlbum(thumb.gi)}
+						<span class="keeper">
+							{@render mini(thumb)}
+							{#if album}
+								{@const filed = session.albumsOf(thumb.asset.id, thumb.gi).some((a) => sameAlbum(a, album))}
+								<button
+									type="button"
+									class={['filed', 'mono', !filed && 'out']}
+									title={filed ? `in ${album.name} · click to leave it out` : `left out of ${album.name} · click to put it back`}
+									onclick={() => toggleFiled(thumb, album)}
+								>
+									◇
+								</button>
+							{/if}
+						</span>
+					{/each}
 				</div>
 			</section>
 		{/if}
@@ -207,6 +241,17 @@
 			</section>
 		{/if}
 
+		{#if plan.locations.length > 0}
+			<section>
+				<h2 class="label">locations</h2>
+				<ul class="albums mono">
+					{#each plan.locations as { place, assetIds } (`${place.latitude},${place.longitude}`)}
+						<li>⌖ {place.label} — {plural(assetIds.length, 'asset')}</li>
+					{/each}
+				</ul>
+			</section>
+		{/if}
+
 		<p class="sentence mono">{sentence}</p>
 
 		<button type="button" class="btn commit" onclick={onCommit} {@attach rebindable('confirm')}>
@@ -217,7 +262,7 @@
 	<KeyLegend
 		items={[
 			{ action: 'confirm', label: 'commit', run: onCommit },
-			{ keys: 'esc', label: 'back to picker', run: onExit }
+			{ keys: 'esc', label: left > 0 ? 'keep culling' : 'back to picker', run: onExit }
 		]}
 	/>
 </div>
@@ -331,6 +376,35 @@
 
 	.keepers .thumb {
 		border-color: var(--amber-dim);
+	}
+
+	.link {
+		padding: 0;
+		color: var(--amber);
+	}
+
+	.link:hover {
+		text-decoration: underline;
+	}
+
+	.keeper {
+		position: relative;
+	}
+
+	.filed {
+		position: absolute;
+		top: 3px;
+		left: 3px;
+		padding: 0 4px;
+		border-radius: 3px;
+		font-size: 11px;
+		color: var(--amber);
+		background: rgb(0 0 0 / 0.65);
+	}
+
+	.filed.out {
+		color: var(--mut);
+		text-decoration: line-through;
 	}
 
 	.dimmed .thumb {

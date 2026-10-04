@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { createHotkey } from '@tanstack/svelte-hotkeys';
+	import { saveSettings } from '$lib/persist';
 	import { session } from '$lib/session.svelte';
 
 	let { stitchAvailable, onClose }: { stitchAvailable: boolean; onClose: () => void } = $props();
 
-	const save = () =>
-		localStorage.setItem('focull.settings', JSON.stringify($state.snapshot(session.settings)));
+	const save = () => saveSettings(session.settings);
 
 	createHotkey('Escape', () => onClose(), { conflictBehavior: 'allow' });
 </script>

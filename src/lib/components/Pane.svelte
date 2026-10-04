@@ -10,8 +10,8 @@
 		kind: 'champion' | 'challenger' | 'single';
 		/** e.g. "2 of 4" for challengers */
 		sub?: string;
-		/** Number of albums this asset is staged to — shows a "◇ N" badge when > 0. */
-		stagedCount?: number;
+		/** Albums this asset goes to at commit — shows a "◇ N" badge when > 0. */
+		albumCount?: number;
 		zoomed?: boolean;
 		/** Held up to your face: the pane takes the whole viewport (Battle: while ↑ is down). */
 		lifted?: boolean;
@@ -30,7 +30,7 @@
 		asset,
 		kind,
 		sub = '',
-		stagedCount = 0,
+		albumCount = 0,
 		zoomed = false,
 		lifted = false,
 		pan = { x: 0.5, y: 0.5 },
@@ -135,9 +135,9 @@
 		{:else}
 			<span>single</span>
 		{/if}
-		{#if stagedCount > 0}
-			<span class="staged" title="staged to {stagedCount} album{stagedCount === 1 ? '' : 's'} (A)">
-				◇ {stagedCount}
+		{#if albumCount > 0}
+			<span class="staged" title="goes to {albumCount} album{albumCount === 1 ? '' : 's'} at commit">
+				◇ {albumCount}
 			</span>
 		{/if}
 	</header>

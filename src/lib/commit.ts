@@ -8,7 +8,7 @@ import {
 	updateAssets,
 	upsertTags
 } from '@immich/sdk';
-import type { CullGroup, GroupState, Settings, StagedAlbum } from './types';
+import type { CullGroup, GroupState, PlannedPlace, Settings, StagedAlbum } from './types';
 import { takenAt } from './grouping';
 
 export interface ReelPlan {
@@ -26,8 +26,10 @@ export interface CommitPlan {
 	reels: ReelPlan[];
 	/** Every asset a finished group processed — tagged as reviewed so later sessions skip them. */
 	reviewedIds: string[];
-	/** Staged album assignments, minus any asset that ended up culled. */
+	/** Album assignments for finished groups, minus anything culled. */
 	albums: StagedAlbum[];
+	/** Location moves for finished groups, minus anything culled. */
+	locations: PlannedPlace[];
 }
 
 /** Pure translation of finished battle states into Immich writes; drives both the review screen and the commit. */
@@ -35,9 +37,10 @@ export function buildPlan(
 	groups: CullGroup[],
 	states: GroupState[],
 	_settings: Settings,
-	stagedAlbums: StagedAlbum[] = []
+	stagedAlbums: StagedAlbum[] = [],
+	places: PlannedPlace[] = []
 ): CommitPlan {
-	const plan: CommitPlan = { rejectIds: [], stacks: [], reels: [], reviewedIds: [], albums: [] };
+	const plan: CommitPlan = { rejectIds: [], stacks: [], reels: [], reviewedIds: [], albums: [], locations: [] };
 
 	groups.forEach((group, i) => {
 		const state = states[i];
@@ -83,11 +86,17 @@ export function buildPlan(
 		}
 	});
 
-	// Album intent survives unless the asset was ultimately culled.
+	// Album and location intent holds for assets of finished groups that survived.
 	const rejected = new Set(plan.rejectIds);
+	const finished = new Set(plan.reviewedIds);
+	const holds = (ids: string[]) => ids.filter((id) => finished.has(id) && !rejected.has(id));
 	for (const staged of stagedAlbums) {
-		const assetIds = staged.assetIds.filter((id) => !rejected.has(id));
+		const assetIds = holds(staged.assetIds);
 		if (assetIds.length > 0) plan.albums.push({ ...staged, assetIds });
+	}
+	for (const { place, assetIds: ids } of places) {
+		const assetIds = holds(ids);
+		if (assetIds.length > 0) plan.locations.push({ place, assetIds });
 	}
 	return plan;
 }
@@ -156,6 +165,8 @@ export async function commitPlan(
 		}
 	}
 
+	/** Source clip → the stitched video it became, so the reel follows its clips into albums. */
+	const stitchedFrom = new Map<string, string>();
 	for (const reel of plan.reels) {
 		log(`Stitching ${reel.assetIds.length} clips (lossless stream copy)…`);
 		const res = await fetch('/api/stitch', {
@@ -166,6 +177,7 @@ export async function commitPlan(
 		if (res.ok) {
 			const stitched = (await res.json()) as StitchResponse;
 			log(`Uploaded ${stitched.filename} (${Math.round(stitched.durationMs / 1000)}s)`);
+			for (const id of reel.assetIds) stitchedFrom.set(id, stitched.id);
 			await stack([stitched.id, ...reel.stackWith], log);
 		} else {
 			log(`Stitch failed (${res.status}): ${await res.text()} — falling back to a plain stack`);
@@ -174,15 +186,28 @@ export async function commitPlan(
 	}
 
 	for (const album of plan.albums) {
+		const reels = album.assetIds.flatMap((id) => stitchedFrom.get(id) ?? []);
+		const ids = [...new Set([...album.assetIds, ...reels])];
 		try {
 			if (album.albumId) {
-				await addAssetsToAlbum({ id: album.albumId, bulkIdsDto: { ids: album.assetIds } });
+				await addAssetsToAlbum({ id: album.albumId, bulkIdsDto: { ids } });
 			} else {
-				await createAlbum({ createAlbumDto: { albumName: album.name, assetIds: album.assetIds } });
+				await createAlbum({ createAlbumDto: { albumName: album.name, assetIds: ids } });
 			}
-			log(`Album "${album.name}" — ${album.assetIds.length} asset${album.assetIds.length === 1 ? '' : 's'}`);
+			log(`Album "${album.name}" — ${ids.length} asset${ids.length === 1 ? '' : 's'}`);
 		} catch (e) {
 			log(`Could not update album "${album.name}": ${message(e)}`);
+		}
+	}
+
+	for (const { place, assetIds } of plan.locations) {
+		try {
+			await updateAssets({
+				assetBulkUpdateDto: { ids: assetIds, latitude: place.latitude, longitude: place.longitude }
+			});
+			log(`Location "${place.label}" — ${assetIds.length} asset${assetIds.length === 1 ? '' : 's'}`);
+		} catch (e) {
+			log(`Could not set location "${place.label}": ${message(e)}`);
 		}
 	}
 

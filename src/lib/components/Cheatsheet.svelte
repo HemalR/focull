@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { createHotkey } from '@tanstack/svelte-hotkeys';
-	import { ACTIONS, CHEATSHEET, keyLabel, keys } from '$lib/keymap.svelte';
+	import { ACTIONS, CHEATSHEET, keyLabel, keys, MAX_KEYS } from '$lib/keymap.svelte';
 	import Key from './Key.svelte';
 
 	/** Every gesture and key, grouped by screen — and the place to rebind keys: click one, press the new key. */
@@ -27,18 +27,36 @@
 					<h2 class="label">{section.title}</h2>
 					<dl>
 						{#each section.actions as action (action)}
-							{@const { hold, label, key } = ACTIONS[action]}
+							{@const { hold, label, keys: defaults } = ACTIONS[action]}
+							{@const bound = keys.of(action)}
 							<dt>
 								{#if hold}<span class="hold mono">hold</span>{/if}
-								<button type="button" class="rebind" title="click to change" onclick={() => keys.record(action)}>
-									<Key {action} />
-								</button>
+								{#each bound as key, slot (key)}
+									<button type="button" class="rebind" title="click to change" onclick={() => keys.record(action, slot)}>
+										<Key {action} {slot} />
+									</button>
+									{#if bound.length > 1}
+										<button type="button" class="drop" title="remove this key" onclick={() => keys.removeKey(action, slot)}>
+											×
+										</button>
+									{/if}
+								{/each}
+								{#if bound.length < MAX_KEYS}
+									<button
+										type="button"
+										class={['add', 'mono', keys.isRecording(action, bound.length) && 'recording']}
+										title="add another key"
+										onclick={() => keys.record(action, bound.length)}
+									>
+										{keys.isRecording(action, bound.length) ? 'press a key…' : '+'}
+									</button>
+								{/if}
 							</dt>
 							<dd class="mono">
 								{label}
 								{#if keys.isCustom(action)}
 									<button type="button" class="reset" title="back to the default" onclick={() => keys.reset(action)}>
-										↺ {keyLabel(key)}
+										↺ {defaults.map(keyLabel).join(' / ')}
 									</button>
 								{/if}
 							</dd>
@@ -52,7 +70,8 @@
 			{/each}
 		</div>
 		<p class="muted mono foot">
-			click a key to change it, or shift-click a key anywhere on screen. a key that's already taken swaps over.
+			click a key to change it (or shift-click one anywhere on screen) · hover for + another key, × remove one · a
+			key that's already taken swaps over.
 		</p>
 	</div>
 </div>
@@ -138,6 +157,27 @@
 
 	.rebind:hover :global(kbd) {
 		border-color: var(--amber-dim);
+	}
+
+	/* Shown on hover (or focus) so the sheet stays readable. */
+	.drop,
+	.add {
+		padding: 0 3px;
+		font-size: 11px;
+		color: var(--mut);
+		opacity: 0;
+	}
+
+	dt:hover :is(.drop, .add),
+	:is(.drop, .add):focus-visible,
+	.add.recording {
+		opacity: 1;
+	}
+
+	.drop:hover,
+	.add:hover,
+	.add.recording {
+		color: var(--amber);
 	}
 
 	.hold {

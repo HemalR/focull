@@ -1,4 +1,5 @@
 import type { SessionData } from './session.svelte';
+import { DEFAULT_SETTINGS, type Settings } from './types';
 
 const DB = 'focull';
 const STORE = 'session';
@@ -41,3 +42,18 @@ export const clearSession = (): Promise<void> =>
 		() => undefined,
 		() => undefined
 	);
+
+const SETTINGS_KEY = 'focull.settings';
+
+/** This device's settings, over the defaults (so settings added later get their default). */
+export function loadSettings(): Settings {
+	try {
+		const raw = localStorage.getItem(SETTINGS_KEY);
+		return { ...DEFAULT_SETTINGS, ...(raw ? (JSON.parse(raw) as Partial<Settings>) : {}) };
+	} catch {
+		return { ...DEFAULT_SETTINGS };
+	}
+}
+
+export const saveSettings = (settings: Settings): void =>
+	localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));

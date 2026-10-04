@@ -15,8 +15,8 @@ import { clearToast, notify } from './toast.svelte';
 type Section = 'battle' | 'singles' | 'video groups' | 'picker' | 'everywhere';
 
 interface ActionDef {
-	/** Default key, in TanStack's normalised form: 'B', 'ArrowLeft', 'Enter', 'Shift+K'. */
-	key: Hotkey;
+	/** Default keys (main first, at most MAX_KEYS), in TanStack's normalised form: 'B', 'ArrowLeft', 'Shift+K'. */
+	keys: Hotkey[];
 	/** Short name for toasts: "keep both". */
 	name: string;
 	/** The cheatsheet's description. */
@@ -29,87 +29,118 @@ interface ActionDef {
 /**
  * Every rebindable action. Keys are unique app-wide (rebinding swaps on a clash), so one
  * action can serve several screens — undo, cull and confirm mean the same thing everywhere.
+ * The battle's direction keys have vim twins: h ← · l → · k ↑ · j ↓.
  */
 const DEFAULTS = {
 	defend: {
-		key: 'ArrowLeft',
+		keys: ['ArrowLeft', 'H'],
 		name: 'champion stays',
 		label: 'champion stays — challenger culled (or click champion)',
 		section: 'battle'
 	},
 	dethrone: {
-		key: 'ArrowRight',
+		keys: ['ArrowRight', 'L'],
 		name: 'challenger wins',
 		label: 'challenger wins — champion culled (or click challenger)',
 		section: 'battle'
 	},
 	keepBoth: {
-		key: 'B',
+		keys: ['B'],
 		name: 'keep both',
 		label: 'keep both — challenger becomes the one to beat',
 		section: 'battle'
 	},
 	album: {
-		key: 'A',
-		name: 'album',
-		label: 'album palette — stage the champion, applied at commit',
+		keys: ['A'],
+		name: 'group album',
+		label: 'album for this group and the ones after it — every keeper goes in at commit',
 		section: 'battle'
 	},
-	skip: { key: 'G', name: 'skip group', label: 'skip group — stays unreviewed', section: 'battle' },
+	albumPhoto: {
+		keys: ['Shift+A'],
+		name: 'photo album',
+		label: 'put just the champion in an album, or take it out (tab switches in the palette)',
+		section: 'battle'
+	},
+	location: {
+		keys: ['P'],
+		name: 'group location',
+		label: 'location for this group’s photos that have none — set at commit',
+		section: 'battle'
+	},
+	locationPhoto: {
+		keys: ['Shift+P'],
+		name: 'photo location',
+		label: 'location for just the champion, even if it has one (tab switches in the palette)',
+		section: 'battle'
+	},
+	skip: { keys: ['G'], name: 'skip group', label: 'skip group — stays unreviewed', section: 'battle' },
 	undo: {
-		key: 'U',
+		keys: ['U'],
 		name: 'undo',
 		label: 'undo last decision (group summary: restores the crown, or the last duel)',
 		section: 'battle'
 	},
 	liftChallenger: {
-		key: 'ArrowUp',
+		keys: ['ArrowUp', 'K'],
 		name: 'full screen challenger',
 		label: 'full screen the challenger',
 		section: 'battle',
 		hold: true
 	},
 	liftChampion: {
-		key: 'ArrowDown',
+		keys: ['ArrowDown', 'J'],
 		name: 'full screen champion',
 		label: 'full screen the champion',
 		section: 'battle',
 		hold: true
 	},
-	zoom: { key: 'Z', name: 'zoom', label: 'full-res zoom · mouse pans both panes', section: 'battle' },
+	zoom: { keys: ['Z'], name: 'zoom', label: 'full-res zoom · mouse pans both panes', section: 'battle' },
 	keep: {
-		key: 'Space',
+		keys: ['Space'],
 		name: 'keep',
 		label: 'keep · held up full screen: it wins',
 		section: 'singles'
 	},
 	cull: {
-		key: 'X',
+		keys: ['X'],
 		name: 'cull',
 		label: 'cull · held up full screen: it loses · group summary: cull the last one standing too',
 		section: 'singles'
 	},
 	reel: {
-		key: 'S',
+		keys: ['S'],
 		name: 'add to reel',
 		label: 'add challenger to reel (stitched on commit)',
 		section: 'video groups'
 	},
-	mute: { key: 'M', name: 'mute', label: 'mute / unmute', section: 'video groups' },
-	trip: { key: 'T', name: 'random trip', label: 'random trip (also what the app opens on)', section: 'picker' },
-	unreviewed: { key: '1', name: 'unreviewed', label: 'unreviewed', section: 'picker' },
-	newSince: { key: '2', name: 'new since last cull', label: 'new since last cull', section: 'picker' },
-	pickAlbum: { key: '3', name: 'pick an album', label: 'one album', section: 'picker' },
-	range: { key: '4', name: 'date range', label: 'date range', section: 'picker' },
-	duplicates: { key: '5', name: 'duplicates', label: 'duplicates', section: 'picker' },
-	settings: { key: ',', name: 'settings', label: 'settings', section: 'picker' },
+	mute: { keys: ['M'], name: 'mute', label: 'mute / unmute', section: 'video groups' },
+	trip: { keys: ['T'], name: 'random trip', label: 'random trip (also what the app opens on)', section: 'picker' },
+	unreviewed: { keys: ['1'], name: 'unreviewed', label: 'unreviewed', section: 'picker' },
+	newSince: { keys: ['2'], name: 'new since last cull', label: 'new since last cull', section: 'picker' },
+	pickAlbum: { keys: ['3'], name: 'pick an album', label: 'one album', section: 'picker' },
+	range: { keys: ['4'], name: 'date range', label: 'date range', section: 'picker' },
+	duplicates: { keys: ['5'], name: 'duplicates', label: 'duplicates', section: 'picker' },
+	media: {
+		keys: ['F'],
+		name: 'media filter',
+		label: 'cycle photos only → videos only → both, for every session',
+		section: 'picker'
+	},
+	settings: { keys: [','], name: 'settings', label: 'settings', section: 'picker' },
+	review: {
+		keys: ['C'],
+		name: 'review & commit now',
+		label: 'review & commit the groups you’ve finished — the rest wait, and you can keep culling after',
+		section: 'everywhere'
+	},
 	confirm: {
-		key: 'Enter',
+		keys: ['Enter'],
 		name: 'confirm',
 		label: 'confirm · next group · commit · another trip',
 		section: 'everywhere'
 	},
-	pickSession: { key: 'R', name: 'pick a session', label: 'done screen: pick a session', section: 'everywhere' }
+	pickSession: { keys: ['R'], name: 'pick a session', label: 'done screen: pick a session', section: 'everywhere' }
 } satisfies Record<string, ActionDef>;
 
 export type Action = keyof typeof DEFAULTS;
@@ -155,19 +186,29 @@ export const CHEATSHEET = (
 
 /** Never bindable: Esc and ? stay fixed, Tab stays focus navigation. */
 const RESERVED = new Set(['Escape', 'Tab', '?', 'Shift+?']);
+/** An action's main key plus one alternative. */
+export const MAX_KEYS = 2;
 const STORAGE = 'focull.keys';
 
 /** How a key reads on screen: "B", "←", "↵", "space", "Ctrl+K". */
 export const keyLabel = (key: Hotkey): string => formatForDisplay(key).replace('␣', 'space');
 
+type KeyLists = Partial<Record<Action, Hotkey[]>>;
+
+/** One of an action's keys: its main key (slot 0) or its alternative (slot 1). */
+interface KeySlot {
+	action: Action;
+	slot: number;
+}
+
 /**
  * The live key bindings: defaults plus this device's overrides (localStorage), and the
- * recorder that captures a new key for one action at a time.
+ * recorder that captures a new key for one slot at a time.
  */
 class Keymap {
-	#custom = $state<Partial<Record<Action, Hotkey>>>(load());
-	/** The action waiting for its new key. */
-	recording = $state<Action | null>(null);
+	#custom = $state<KeyLists>(load());
+	/** The key slot waiting for its new key. */
+	recording = $state<KeySlot | null>(null);
 	/** Shift was down for the shift-click that started recording, and hasn't been let go yet. */
 	#clickShift = false;
 	#listeners: AbortController | null = null;
@@ -176,26 +217,54 @@ class Keymap {
 		onCancel: () => this.#stop()
 	});
 
-	of = (action: Action): Hotkey => this.#custom[action] ?? ACTIONS[action].key;
+	/**
+	 * An action's keys, main first: this device's own, else its defaults minus any another
+	 * action has been given since (so a newly added default can't clash with a custom key).
+	 */
+	of = (action: Action): Hotkey[] =>
+		this.#custom[action] ??
+		ACTIONS[action].keys.filter((k) => !ACTION_IDS.some((a) => a !== action && this.#custom[a]?.includes(k)));
+
 	isCustom = (action: Action): boolean => this.#custom[action] !== undefined;
 	get anyCustom(): boolean {
 		return ACTION_IDS.some(this.isCustom);
 	}
 
-	/** Wait for the next key press and bind it to `action`. Esc, or a click anywhere, cancels. */
-	record = (action: Action, shiftHeld = false): void => {
+	isRecording = (action: Action, slot = 0): boolean =>
+		this.recording?.action === action && this.recording.slot === slot;
+
+	/**
+	 * Wait for the next key press and make it the action's key in `slot` — one past its last
+	 * adds a key. Esc, or a click anywhere, cancels.
+	 */
+	record = (action: Action, slot = 0, shiftHeld = false): void => {
 		this.#stop();
-		this.recording = action;
+		this.recording = { action, slot: Math.min(slot, this.of(action).length, MAX_KEYS - 1) };
 		this.#clickShift = shiftHeld;
 		this.#listeners = new AbortController();
 		const { signal } = this.#listeners;
 		window.addEventListener('pointerdown', this.#stop, { capture: true, signal });
 		window.addEventListener('keyup', (e) => e.key === 'Shift' && (this.#clickShift = false), { signal });
 		this.#recorder.start();
-		notify(`press a new key for ${ACTIONS[action].name} — esc cancels`, false, 5000);
+		const adding = this.recording.slot === this.of(action).length;
+		notify(`press ${adding ? 'another' : 'a new'} key for ${ACTIONS[action].name} — esc cancels`, false, 5000);
 	};
 
-	reset = (action: Action): void => this.#bind(action, ACTIONS[action].key);
+	/** Drop one of an action's keys — never its last. */
+	removeKey = (action: Action, slot: number): void => {
+		const keys = this.of(action);
+		if (keys.length < 2) return;
+		this.#save({ ...this.#custom, [action]: keys.filter((_, i) => i !== slot) });
+		notify(`${ACTIONS[action].name}: ${keyLabel(keys[slot])} removed`);
+	};
+
+	/** Back to the default keys, taken back from whichever actions hold them now. */
+	reset = (action: Action): void => {
+		const defaults = ACTIONS[action].keys;
+		defaults.forEach((key, slot) => this.#bind(action, slot, key));
+		this.#save({ ...this.#custom, [action]: this.of(action).slice(0, defaults.length) });
+		notify(`${ACTIONS[action].name} → ${defaults.map(keyLabel).join(' / ')}`);
+	};
 
 	resetAll = (): void => {
 		this.#save({});
@@ -211,51 +280,73 @@ class Keymap {
 	};
 
 	#recorded(recorded: Hotkey | ''): void {
-		const action = this.recording;
+		const target = this.recording;
 		const clickShift = this.#clickShift;
 		this.#stop();
-		// Backspace/Delete come through as '' — unbinding isn't a thing here, so keep the old key.
-		if (!action || recorded === '') return;
+		// Backspace/Delete come through as '' — × in the cheatsheet removes keys instead.
+		if (!target || recorded === '') return;
 		const key = clickShift ? withoutShift(recorded) : recorded;
 		if (RESERVED.has(key)) {
-			notify(`${keyLabel(key)} is reserved — ${ACTIONS[action].name} keeps ${keyLabel(this.of(action))}`, true);
+			notify(`${keyLabel(key)} is reserved — nothing changed`, true);
 			return;
 		}
-		this.#bind(action, key);
+		this.#bind(target.action, target.slot, key);
 	}
 
-	/** Give `action` the key; whichever action had it takes `action`'s old key, so nothing ever clashes. */
-	#bind(action: Action, key: Hotkey): void {
-		const old = this.of(action);
+	/**
+	 * Make `key` the action's key in `slot`. Whichever action had it takes the replaced key in
+	 * exchange, or, when nothing was replaced, just gives it up (if that leaves it a key).
+	 */
+	#bind(action: Action, slot: number, key: Hotkey): void {
+		const { name } = ACTIONS[action];
+		const keys = [...this.of(action)];
+		const old: Hotkey | undefined = keys[slot];
 		if (key === old) return;
-		const taken = ACTION_IDS.find((a) => a !== action && this.of(a) === key);
-		this.#save({ ...this.#custom, [action]: key, ...(taken && { [taken]: old }) });
-		const swap = taken ? ` · ${ACTIONS[taken].name} moved to ${keyLabel(old)}` : '';
-		notify(`${ACTIONS[action].name} → ${keyLabel(key)}${swap}`, false, 3000);
+		if (keys.includes(key)) {
+			notify(`${keyLabel(key)} is already a key for ${name}`, true);
+			return;
+		}
+		const next: KeyLists = { ...this.#custom };
+		const taker = ACTION_IDS.find((a) => a !== action && this.of(a).includes(key));
+		let swap = '';
+		if (taker) {
+			const theirs = this.of(taker);
+			if (!old && theirs.length === 1) {
+				notify(`${keyLabel(key)} is ${ACTIONS[taker].name}'s only key — give it another first`, true);
+				return;
+			}
+			next[taker] = old ? theirs.map((k) => (k === key ? old : k)) : theirs.filter((k) => k !== key);
+			swap = old ? ` · ${ACTIONS[taker].name} moved to ${keyLabel(old)}` : ` · taken from ${ACTIONS[taker].name}`;
+		}
+		keys[slot] = key;
+		next[action] = keys;
+		this.#save(next);
+		notify(`${name} → ${keys.map(keyLabel).join(' / ')}${swap}`, false, 3000);
 	}
 
 	/** Store only what differs from the defaults, so improved defaults still reach untouched keys. */
-	#save(next: Partial<Record<Action, Hotkey>>): void {
-		const custom: Partial<Record<Action, Hotkey>> = {};
+	#save(next: KeyLists): void {
+		const custom: KeyLists = {};
 		for (const a of ACTION_IDS) {
-			const key = next[a];
-			if (key && key !== ACTIONS[a].key) custom[a] = key;
+			const keys = next[a];
+			if (keys && keys.join('|') !== ACTIONS[a].keys.join('|')) custom[a] = keys;
 		}
 		this.#custom = custom;
 		localStorage.setItem(STORAGE, JSON.stringify(custom));
 	}
 }
 
-function load(): Partial<Record<Action, Hotkey>> {
+/** This device's custom keys. Older saves held one key per action, as a plain string. */
+function load(): KeyLists {
 	if (typeof localStorage === 'undefined') return {};
 	try {
 		const raw: unknown = JSON.parse(localStorage.getItem(STORAGE) ?? '{}');
 		if (!raw || typeof raw !== 'object') return {};
 		const stored = new Map(Object.entries(raw));
-		const custom: Partial<Record<Action, Hotkey>> = {};
+		const custom: KeyLists = {};
 		for (const a of ACTION_IDS) {
-			const key = stored.get(a);
-			if (isHotkey(key)) custom[a] = key;
+			const keys = [stored.get(a)].flat().filter(isHotkey).slice(0, MAX_KEYS);
+			if (keys.length > 0) custom[a] = keys;
 		}
 		return custom;
 	} catch {
@@ -281,25 +372,34 @@ function withoutShift(key: Hotkey): Hotkey {
 
 export const keys = new Keymap();
 
+/** Stands in for an empty key slot, whose registration stays disabled. */
+const UNUSED: Hotkey = 'F12';
+
 /**
- * Run `callback` on the action's current key, following rebinds live. Several screens can
- * register one action (each gating itself with `enabled`), so overlaps are expected.
+ * Run `callback` on any of the action's current keys, following rebinds live. Several screens
+ * can register one action (each gating itself with `enabled`), so overlaps are expected.
  */
 export function onKey(
 	action: Action,
 	callback: HotkeyCallback,
 	options: CreateHotkeyOptions | (() => CreateHotkeyOptions) = {}
 ): void {
-	createHotkey(
-		() => keys.of(action),
-		callback,
-		() => ({ conflictBehavior: 'allow', ...(typeof options === 'function' ? options() : options) })
-	);
+	for (let slot = 0; slot < MAX_KEYS; slot++) {
+		createHotkey(
+			() => keys.of(action)[slot] ?? UNUSED,
+			callback,
+			() => {
+				const resolved = typeof options === 'function' ? options() : options;
+				const bound = keys.of(action)[slot] !== undefined;
+				return { conflictBehavior: 'allow', ...resolved, enabled: bound && (resolved.enabled ?? true) };
+			}
+		);
+	}
 }
 
-/** Shift-click records a new key for `action` instead of clicking the element. */
+/** Shift-click records a new key for the action's `slot` instead of clicking the element. */
 export const rebindable =
-	(action: Action): Attachment<HTMLElement> =>
+	(action: Action, slot = 0): Attachment<HTMLElement> =>
 	(node) => {
 		const { title } = node;
 		node.title = title ? `${title} · shift-click to change its key` : 'shift-click to change its key';
@@ -313,7 +413,7 @@ export const rebindable =
 				if (!e.shiftKey) return;
 				e.preventDefault();
 				e.stopImmediatePropagation();
-				keys.record(action, true);
+				keys.record(action, slot, true);
 			},
 			{ capture: true, signal }
 		);

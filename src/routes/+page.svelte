@@ -15,9 +15,9 @@
 	import { buildPlan, commitPlan, type CommitPlan } from '$lib/commit';
 	import { groupAssets, takenAt } from '$lib/grouping';
 	import { setupImmich } from '$lib/immich';
-	import { clearSession, loadSession, saveSession } from '$lib/persist';
+	import { clearSession, loadSession, loadSettings, saveSession } from '$lib/persist';
 	import { session, type SessionData, type Tally } from '$lib/session.svelte';
-	import { DEFAULT_SETTINGS, type SessionSource, type Settings } from '$lib/types';
+	import { MEDIA_LABELS, type SessionSource } from '$lib/types';
 	import { localDate, plural } from '$lib/format';
 	import Battle from '$lib/components/Battle.svelte';
 	import Swipe from '$lib/components/Swipe.svelte';
@@ -81,6 +81,8 @@
 	let fetchSummary = $state<{ assets: number; groups: number; tripDate?: string } | null>(null);
 	let fetchEmpty = $state(false);
 	let fetchKind = $state<SessionSource['kind'] | null>(null);
+	/** "videos only" while the picker's media filter (F) narrows sessions; empty for both. */
+	const mediaNote = $derived(session.settings.media === 'both' ? '' : MEDIA_LABELS[session.settings.media]);
 	const emptyMessages: Partial<Record<SessionSource['kind'], string>> = {
 		duplicates: 'No duplicates found — your library is already tidy.',
 		trip: 'Everything has been reviewed — no memories left to cull.'
@@ -91,6 +93,8 @@
 	let commitFailed = $state(false);
 	let doneSummary = $state<Tally | null>(null);
 	let doneReviewed = $state(0);
+	/** Groups still to cull after a commit partway through — the done screen offers to carry on. */
+	let doneRemaining = $state(0);
 	let statsLine = $state('');
 
 
@@ -118,15 +122,6 @@
 			await afterLogin();
 		} catch (e) {
 			loadError = e instanceof Error ? e.message : 'could not reach the server';
-		}
-	}
-
-	function loadSettings(): Settings {
-		try {
-			const raw = localStorage.getItem('focull.settings');
-			return { ...DEFAULT_SETTINGS, ...(raw ? (JSON.parse(raw) as Partial<Settings>) : {}) };
-		} catch {
-			return { ...DEFAULT_SETTINGS };
 		}
 	}
 
@@ -230,13 +225,14 @@
 
 	/** Plan over judged groups only — skipped (and unjudged single) groups must stay untouched. */
 	function computePlan(): CommitPlan {
-		const judged = session.groups.map((_, i) => i).filter((i) => session.isJudged(i));
+		const judged = session.groups.map((_, i) => i).filter((i) => session.isCommittable(i));
 		return sanitize(
 			buildPlan(
 				judged.map((i) => session.groups[i]),
 				judged.map((i) => session.states[i]),
 				session.settings,
-				$state.snapshot(session.stagedAlbums)
+				session.albumAssignments(),
+				session.placeAssignments()
 			)
 		);
 	}
@@ -247,15 +243,32 @@
 		stacks: p.stacks.map((s) => [...new Set(s)]).filter((s) => s.length > 1)
 	});
 
+	/** Review & commit the finished groups now; the rest wait, and culling can carry on after. */
+	function reviewNow() {
+		if (!session.groups.some((_, i) => session.isCommittable(i))) {
+			notify('nothing finished yet — finish a group first', true);
+			return;
+		}
+		plan = computePlan();
+		phase = 'review';
+	}
+
+	/** Back from review, or from a commit partway through, to the groups still waiting. */
+	function keepCulling() {
+		if (session.isPending(session.gi)) phase = 'battle';
+		else advance();
+	}
+
 	async function commit() {
 		if (!plan) return;
 		phase = 'committing';
 		commitLog = [];
 		commitFailed = false;
+		const committing = session.groups.filter((_, i) => session.isCommittable(i));
 		try {
 			await commitPlan(plan, session.settings, (line) => commitLog.push(line));
 			// Only ever advance: trips and ranges into the past must not rewind "new since last cull".
-			const newest = Math.max(...session.groups.flatMap((g) => g.assets.map(takenAt)));
+			const newest = Math.max(...committing.flatMap((g) => g.assets.map(takenAt)));
 			const lastCull = Date.parse(localStorage.getItem('focull.lastCull') ?? '') || 0;
 			if (Number.isFinite(newest) && newest > lastCull) {
 				localStorage.setItem('focull.lastCull', new Date(newest).toISOString());
@@ -263,7 +276,14 @@
 			doneSummary = { ...session.tally };
 			doneReviewed = plan.reviewedIds.length;
 			statsLine = buildStatsLine(plan);
-			void clearSession();
+			doneRemaining = session.pendingCount;
+			if (doneRemaining > 0) {
+				session.markCommitted();
+				const data = session.data;
+				if (data) void saveSession(data);
+			} else {
+				void clearSession();
+			}
 			phase = 'done';
 		} catch (e) {
 			commitLog.push(`ERROR: ${e instanceof Error ? e.message : String(e)}`);
@@ -283,13 +303,16 @@
 		return `${assets} assets · ${minuteStr} · ${dpm >= 10 ? Math.round(dpm) : dpm.toFixed(1)} decisions/min · ${culledPct}% culled`;
 	}
 
+	// Leaving a session behind (e.g. after a commit partway through) also forgets the saved copy.
 	function newSession() {
 		session.reset();
+		void clearSession();
 		phase = 'picker';
 	}
 
 	function newTrip() {
 		session.reset();
+		void clearSession();
 		void startTrip();
 	}
 
@@ -300,6 +323,10 @@
 		}
 		if (phase === 'done' || (phase === 'fetching' && fetchEmpty)) {
 			newSession();
+			return;
+		}
+		if (phase === 'review' && session.pendingCount > 0) {
+			keepCulling();
 			return;
 		}
 		if (abandon()) phase = 'picker';
@@ -339,7 +366,7 @@
 		() => {
 			if (phase === 'fetching') newSession();
 			else if (phase === 'committing') void commit();
-			else if (phase === 'done') newTrip();
+			else if (phase === 'done') (doneRemaining > 0 ? keepCulling : newTrip)();
 		},
 		() => ({
 			enabled:
@@ -418,6 +445,9 @@
 				<p class="mono">
 					{(fetchKind && emptyMessages[fetchKind]) ?? 'No assets match — nothing to cull. Nice and tidy.'}
 				</p>
+				{#if mediaNote}
+					<p class="mono muted">{mediaNote} — <Key action="media" /> in the picker changes that</p>
+				{/if}
 				<button type="button" class="btn" onclick={newSession} {@attach rebindable('confirm')}>
 					back to picker <Key action="confirm" />
 				</button>
@@ -426,7 +456,8 @@
 					<p class="mono trip">a trip back to {fetchSummary.tripDate}</p>
 				{/if}
 				<p class="mono summary">
-					{plural(fetchSummary.assets, 'asset')} → {plural(fetchSummary.groups, 'group')}
+					{plural(fetchSummary.assets, 'asset')} → {plural(fetchSummary.groups, 'group')}{mediaNote &&
+						` · ${mediaNote}`}
 				</p>
 			{:else}
 				<p class="muted mono">
@@ -445,6 +476,7 @@
 		onSkipped={advance}
 		onHelp={() => (cheatsheetOpen = true)}
 		onExit={escapeOut}
+		onReview={reviewNow}
 		onOverlay={(open) => (battleOverlay = open)}
 	/>
 	{#if phase === 'group-done'}
@@ -453,6 +485,8 @@
 			{notify}
 			onNext={advance}
 			onReopen={() => (phase = 'battle')}
+			onOverlay={(open) => (battleOverlay = open)}
+			onReview={reviewNow}
 		/>
 	{/if}
 {:else if phase === 'review' && plan}
@@ -463,6 +497,7 @@
 		onChanged={() => (plan = computePlan())}
 		onCommit={() => void commit()}
 		onExit={escapeOut}
+		left={session.pendingCount}
 	/>
 {:else if phase === 'committing'}
 	<div class="center-screen">
@@ -490,7 +525,7 @@
 	<div class="center-screen">
 		<div class="card notice">
 			<span class="brand">focull<span class="dot">.</span></span>
-			<h1>{doneReviewed > 0 ? 'Session committed' : 'Nothing committed'}</h1>
+			<h1>{doneReviewed === 0 ? 'Nothing committed' : doneRemaining > 0 ? 'Progress committed' : 'Session committed'}</h1>
 			{#if doneReviewed === 0}
 				<p class="mono muted">every group was skipped — the library is untouched</p>
 			{/if}
@@ -514,9 +549,16 @@
 				{#each commitLog as line, i (i)}<li>{line}</li>{/each}
 			</ul>
 			<div class="row-btns">
-				<button type="button" class="btn" onclick={newTrip} {@attach rebindable('confirm')}>
-					another trip <Key action="confirm" />
-				</button>
+				{#if doneRemaining > 0}
+					<button type="button" class="btn" onclick={keepCulling} {@attach rebindable('confirm')}>
+						keep culling — {plural(doneRemaining, 'group')} left <Key action="confirm" />
+					</button>
+					<button type="button" class="ghost mono" onclick={newTrip}>another trip</button>
+				{:else}
+					<button type="button" class="btn" onclick={newTrip} {@attach rebindable('confirm')}>
+						another trip <Key action="confirm" />
+					</button>
+				{/if}
 				<button type="button" class="ghost mono" onclick={newSession} {@attach rebindable('pickSession')}>
 					<Key action="pickSession" /> pick a session
 				</button>
