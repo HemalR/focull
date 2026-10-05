@@ -63,3 +63,17 @@ it('commits each finished group once, then carries on with the rest', () => {
 	expect(session.undo()).toBe(true); // undo still works within what's not committed
 	expect(session.isCommittable(0)).toBe(false);
 });
+
+it('keeps neither: both culled, and the next challenger becomes the one to beat', () => {
+	session.start([group('a', 'b', 'c'), group('d', 'e')], { kind: 'unreviewed' }, DEFAULT_SETTINGS);
+	session.neither();
+	expect(session.current).toMatchObject({ championIdx: 2, queue: [], fates: { 0: 'rejected', 1: 'rejected' } });
+
+	session.gotoNextPending();
+	session.neither(); // the last two: nobody survives
+	expect(session.current).toMatchObject({ championIdx: 0, queue: [], fates: { 0: 'rejected', 1: 'rejected' } });
+
+	const plan = buildPlan(session.groups, session.states, DEFAULT_SETTINGS);
+	expect(plan.rejectIds).toEqual(['a', 'b', 'd', 'e']);
+	expect(plan.stacks).toEqual([['c', 'a', 'b']]);
+});

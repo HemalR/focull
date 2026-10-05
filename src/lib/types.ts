@@ -100,5 +100,8 @@ export type SessionSource =
 	| { kind: 'new'; takenAfter: string }
 	| { kind: 'album'; albumId: string; albumName: string }
 	| { kind: 'range'; takenAfter: string; takenBefore: string }
-	/** A few random days of library, opening on the scene of a random never-judged photo (the anchor). */
-	| { kind: 'trip'; anchorId: string; takenAfter: string; takenBefore: string };
+	/**
+	 * The trip around a random never-judged photo (the anchor): while away from home, the whole
+	 * trip; at home, a few days from the anchor's scene. `places`: its most photographed cities.
+	 */
+	| { kind: 'trip'; anchorId: string; takenAfter: string; takenBefore: string; places?: string[] };

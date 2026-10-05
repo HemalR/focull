@@ -1,6 +1,7 @@
 <script lang="ts">
-	import { calendarDate, localDate, plural, timeAgo } from '$lib/format';
+	import { calendarDate, plural, timeAgo } from '$lib/format';
 	import { session } from '$lib/session.svelte';
+	import { tripLabel } from '$lib/trips';
 	import { MEDIA_LABELS } from '$lib/types';
 
 	/**
@@ -15,7 +16,7 @@
 		const { source, groups } = session;
 		switch (source?.kind) {
 			case 'trip':
-				return `a trip back to ${localDate(groups[0].assets[0].localDateTime)}`;
+				return tripLabel(groups[0].assets[0].localDateTime, source.places);
 			case 'album':
 				return `album “${source.albumName}”`;
 			case 'range':

@@ -251,6 +251,23 @@ class CullSession {
 		this.#crown('kept');
 	}
 
+	/**
+	 * Neither survives: both are culled, and the next challenger becomes the one to beat. With
+	 * no challenger left, the group ends with no survivors (as cullChampion does).
+	 */
+	neither(): void {
+		const s = this.current;
+		const challenger = s?.queue[0];
+		if (!s || challenger === undefined) return;
+		this.#snapshot();
+		s.fates[challenger] = 'rejected';
+		s.fates[s.championIdx] = 'rejected';
+		s.queue.shift();
+		const next = s.queue.shift();
+		if (next !== undefined) s.championIdx = next;
+		this.rev++;
+	}
+
 	/** Move an undecided asset to the front of the queue. */
 	jumpTo(idx: number): void {
 		const s = this.current;

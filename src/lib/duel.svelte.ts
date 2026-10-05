@@ -27,9 +27,10 @@ export interface DuelProps {
 
 /**
  * What happens to the challenger: culled (defend), crowned with the old champion culled
- * (dethrone), kept with the crown passing to it (keepBoth), or added to the reel.
+ * (dethrone), kept with the crown passing to it (keepBoth), culled along with the champion
+ * (neither), or added to the reel.
  */
-export type DuelAction = 'defend' | 'dethrone' | 'keepBoth' | 'reel';
+export type DuelAction = 'defend' | 'dethrone' | 'keepBoth' | 'neither' | 'reel';
 
 type Palette = 'album' | 'location';
 export type Overlay = Palette | `${Palette}Photo` | 'menu';
@@ -125,8 +126,8 @@ export class Duel {
 	};
 
 	decide = (action: DuelAction): void => {
-		const { challenger, challengerIdx, state } = this;
-		if (!challenger || challengerIdx === undefined || !state) return;
+		const { champion, challenger, challengerIdx, state } = this;
+		if (!champion || !challenger || challengerIdx === undefined || !state) return;
 		const name = challenger.originalFileName;
 		const crowning = action === 'dethrone' || action === 'keepBoth';
 		this.#recent.push(crowning ? state.championIdx : challengerIdx);
@@ -136,6 +137,7 @@ export class Duel {
 				defend: `${name} → cull pile`,
 				dethrone: `${name} takes the crown`,
 				keepBoth: `both kept — ${name} is the one to beat`,
+				neither: `${champion.originalFileName} and ${name} → cull pile`,
 				reel: `${name} → reel`
 			}[action]
 		);

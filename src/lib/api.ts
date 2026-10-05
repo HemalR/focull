@@ -11,6 +11,7 @@ import {
 	type MetadataSearchDto
 } from '@immich/sdk';
 import { takenAt } from './grouping';
+import { topCities, tripSpan } from './trips';
 import type { CullGroup, MediaFilter, SessionSource, Settings } from './types';
 
 /** The one asset type a media filter keeps; undefined keeps both. */
@@ -119,21 +120,27 @@ export async function fetchSessionAssets(
 	return all.filter((a) => !a.isTrashed && !a.stack && !judged.has(a.id));
 }
 
-/** Lead-in before a trip's anchor, so the anchor's whole scene is fetched; and the days that follow it. */
-const TRIP_LEAD_MS = 12 * 3_600_000;
-const TRIP_DAYS = 3;
+/** How far around the anchor to look — wide enough for a 30-day trip, and to tell where home was. */
+const TRIP_SEARCH_MS = 45 * 86_400_000;
+
+export interface Trip {
+	source: Extract<SessionSource, { kind: 'trip' }>;
+	/** The trip's unjudged assets, ready to group. */
+	assets: AssetResponseDto[];
+}
 
 /**
- * Frame a trip around a random never-judged photo (or video, when only videos are wanted).
- * Random picks land in dense stretches more often, which is where culling pays off. Null
- * when a sample turns up nothing unjudged.
+ * The trip around a random never-judged photo (or video, when only videos are wanted): see
+ * tripSpan. Random picks land in dense stretches more often, which is where culling pays off.
+ * Null when a sample turns up nothing unjudged.
  */
-export async function pickTrip(settings: Settings): Promise<Extract<SessionSource, { kind: 'trip' }> | null> {
+export async function pickTrip(settings: Settings): Promise<Trip | null> {
+	const type = typeFor(settings.media);
 	const [sample, judged] = await Promise.all([
 		searchRandom({
 			randomSearchDto: {
 				size: 100,
-				type: typeFor(settings.media) ?? AssetTypeEnum.Image,
+				type: type ?? AssetTypeEnum.Image,
 				visibility: AssetVisibility.Timeline,
 				withStacked: false,
 				withExif: true
@@ -144,11 +151,28 @@ export async function pickTrip(settings: Settings): Promise<Extract<SessionSourc
 	const anchor = sample.find((a) => !a.isTrashed && !a.stack && !judged.has(a.id));
 	if (!anchor) return null;
 	const t = takenAt(anchor);
+	// Judged photos still say where you were, so they count towards finding the trip.
+	const around = await searchPaged({
+		type,
+		withExif: true,
+		visibility: AssetVisibility.Timeline,
+		withStacked: false,
+		order: AssetOrder.Asc,
+		size: 1000,
+		takenAfter: new Date(t - TRIP_SEARCH_MS).toISOString(),
+		takenBefore: new Date(t + TRIP_SEARCH_MS).toISOString()
+	});
+	const { start, end } = tripSpan(around, anchor, settings.sceneGapSeconds * 1000);
+	const onTrip = around.filter((a) => takenAt(a) >= start && takenAt(a) <= end);
 	return {
-		kind: 'trip',
-		anchorId: anchor.id,
-		takenAfter: new Date(t - TRIP_LEAD_MS).toISOString(),
-		takenBefore: new Date(t + TRIP_DAYS * 86_400_000).toISOString()
+		source: {
+			kind: 'trip',
+			anchorId: anchor.id,
+			takenAfter: new Date(start).toISOString(),
+			takenBefore: new Date(end).toISOString(),
+			places: topCities(onTrip)
+		},
+		assets: onTrip.filter((a) => !a.isTrashed && !a.stack && !judged.has(a.id))
 	};
 }
 

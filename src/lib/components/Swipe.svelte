@@ -33,7 +33,7 @@
 	/**
 	 * What each swipe does — also drives the button row and keys. Right is the safe "yes":
 	 * keeping never culls anything. Crowning culls the old champion, so it takes the deliberate
-	 * flick up onto the inset.
+	 * flick up onto the inset. Down drops both (or adds a clip to the reel, in video groups).
 	 */
 	const outcomes = $derived.by((): Partial<Record<Dir, Outcome>> => {
 		if (duel.isSingle) {
@@ -44,9 +44,9 @@
 		}
 		return {
 			left: { action: 'defend', label: 'cull', icon: '✕', tone: 'rej', run: () => duel.decide('defend') },
-			...(duel.canReel && {
-				down: { action: 'reel', label: 'reel', icon: '◉', tone: 'reel', run: () => duel.decide('reel') }
-			}),
+			down: duel.canReel
+				? { action: 'reel', label: 'reel', icon: '◉', tone: 'reel', run: () => duel.decide('reel') }
+				: { action: 'neither', label: 'neither', icon: '✕✕', tone: 'rej', run: () => duel.decide('neither') },
 			up: { action: 'dethrone', label: 'crown', icon: '◆', tone: 'amber', run: () => duel.decide('dethrone') },
 			right: { action: 'keepBoth', label: 'keep', icon: '✓', tone: 'keep', run: () => duel.decide('keepBoth') }
 		};
@@ -213,7 +213,7 @@
 
 	// Decision keys mean the same as in the side-by-side battle; here they throw the card.
 	const dirOfAction = (action: Action) => BUTTON_ORDER.find((dir) => outcomes[dir]?.action === action);
-	for (const action of ['defend', 'dethrone', 'keepBoth', 'reel', 'keep', 'cull'] as const) {
+	for (const action of ['defend', 'dethrone', 'keepBoth', 'neither', 'reel', 'keep', 'cull'] as const) {
 		onKey(
 			action,
 			() => {
@@ -223,6 +223,8 @@
 			() => ({ enabled: enabled && dirOfAction(action) !== undefined })
 		);
 	}
+	// Video groups swipe down to the reel, so "neither" has no direction there — just do it.
+	onKey('neither', () => duel.decide('neither'), () => ({ enabled: enabled && duel.dueling && !dirOfAction('neither') }));
 	createHotkey('Escape', () => duel.setOverlay(null), () => ({
 		enabled: duel.overlay === 'menu',
 		conflictBehavior: 'allow'
@@ -378,6 +380,11 @@
 			<button type="button" role="menuitem" onclick={fromMenu(duel.skip)}>
 				⤼ skip this scene — stays unreviewed
 			</button>
+			{#if !duel.isSingle && duel.canReel}
+				<button type="button" role="menuitem" onclick={fromMenu(() => duel.decide('neither'))}>
+					✕✕ keep neither — both culled
+				</button>
+			{/if}
 			<button type="button" role="menuitem" onclick={fromMenu(props.onReview)}>
 				✓ review & commit what's done
 			</button>

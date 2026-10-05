@@ -50,6 +50,12 @@ const DEFAULTS = {
 		label: 'keep both — challenger becomes the one to beat',
 		section: 'battle'
 	},
+	neither: {
+		keys: ['N'],
+		name: 'keep neither',
+		label: 'keep neither — both culled; the next challenger becomes the one to beat',
+		section: 'battle'
+	},
 	album: {
 		keys: ['A'],
 		name: 'group album',
@@ -164,7 +170,7 @@ const FIXED: Partial<Record<Section | 'swipe deck (touch / narrow screens)' | 'r
 		{ keys: '← swipe', label: 'cull the photo' },
 		{ keys: '→ swipe', label: 'keep it — it becomes the one to beat' },
 		{ keys: '↑ swipe', label: 'crown it — the old one to beat is culled' },
-		{ keys: '↓ swipe', label: 'add to reel (video groups)' },
+		{ keys: '↓ swipe', label: 'keep neither — both culled (video groups: add to reel)' },
 		{ keys: 'hold', label: 'see the one to beat in its place (tap the inset to pin)' },
 		{ keys: 'double-tap', label: 'zoom · drag pans · hold still compares' }
 	],

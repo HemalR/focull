@@ -6,7 +6,7 @@
 
 focull groups your library into scenes (photos taken within a few minutes of each other) and walks each scene as a stream of duels: the current best photo — the *champion* — faces each next shot — the *challenger* — and one keystroke (or swipe) decides every duel. Keep a decent shot and a better one turns up two frames later? It just takes the crown — no hunting back to delete the first.
 
-Open the app and you land straight in a **random trip**: the scene of a random photo you've never judged, plus the few days after it. No picking, just culling — and a trip down memory lane.
+Open the app and you land straight in a **random trip**, around a random photo you've never judged. If you were away from home, it's the whole trip — from your first photo away to the last one before you're back (up to 30 days; the cities show as it loads). If you were home, it's that scene and the few days after it. No picking, just culling — and a trip down memory lane.
 
 Nothing touches your library until you review and **commit**, at which point focull writes the results back to Immich:
 
@@ -24,6 +24,7 @@ These are the defaults, and every one can be changed. **Shift-click any key you 
 | `←` / `h` (or click champion) | Champion stays — challenger is culled |
 | `→` / `l` (or click challenger) | Challenger wins — takes the crown, old champion is culled |
 | `B` | Keep both — the challenger becomes the one to beat for the shots that follow |
+| `N` | Keep neither — both are culled, and the next challenger becomes the one to beat |
 | `S` | Add clip to the stitch reel (video groups) |
 | `A` | Album for this group **and the ones after it**: every keeper goes in at commit, until you pick another (or "no album"). Existing albums or new ones created on the spot |
 | `Shift+A` | Just the champion: add it to an album, or take it out of the group's (`Tab` switches inside the palette) |
@@ -54,7 +55,7 @@ On touch screens and narrow windows the battle becomes a card deck: the challeng
 | Swipe `←` | Cull the challenger |
 | Swipe `→` | Keep it — it becomes the one to beat (nothing is culled) |
 | Swipe `↑` | Crown it — the old one to beat is culled |
-| Swipe `↓` | Add to the reel (video groups) |
+| Swipe `↓` | Keep neither — both culled (in video groups: add to the reel; neither is in the `⋯` menu) |
 | Hold | See the one to beat in the card's place — a blink comparison (tap the inset to pin it) |
 | Double-tap | Full-resolution zoom; drag pans, holding still compares at the same zoom |
 

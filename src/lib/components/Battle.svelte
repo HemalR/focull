@@ -46,6 +46,7 @@
 	onKey('defend', paneKey('defend'), dueling);
 	onKey('dethrone', paneKey('dethrone'), dueling);
 	onKey('keepBoth', () => decide('keepBoth'), dueling);
+	onKey('neither', () => decide('neither'), dueling);
 	onKey('reel', () => decide('reel'), () => ({ enabled: duel.dueling && duel.canReel }));
 
 	/** Keep or cull the photo on screen: a single, or the side held up full screen. */
@@ -103,6 +104,7 @@
 			{ action: 'defend', label: 'champion stays', run: () => duel.decide('defend') },
 			{ action: 'dethrone', label: 'challenger wins', run: () => duel.decide('dethrone') },
 			{ action: 'keepBoth', label: 'keep both — new one to beat', run: () => duel.decide('keepBoth') },
+			{ action: 'neither', label: 'keep neither', run: () => duel.decide('neither') },
 			...(duel.canReel ? [{ action: 'reel', label: 'add to reel', run: () => duel.decide('reel') } as const] : []),
 			...mute,
 			...shared

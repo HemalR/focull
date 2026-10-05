@@ -196,7 +196,7 @@
 			<button type="button" class={['card', 'source']} onclick={onTrip} {@attach rebindable('trip')}>
 				<Key action="trip" />
 				<strong>Random trip</strong>
-				<span class="muted mono">a few random days of unreviewed photos — relive and cull</span>
+				<span class="muted mono">a whole trip away — or a few days at home — around a random unreviewed photo</span>
 			</button>
 
 			<button type="button" class={['card', 'source']} onclick={startUnreviewed} {@attach rebindable('unreviewed')}>

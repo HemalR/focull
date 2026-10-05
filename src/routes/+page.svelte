@@ -13,12 +13,14 @@
 		type ServerInfo
 	} from '$lib/api';
 	import { buildPlan, commitPlan, type CommitPlan } from '$lib/commit';
+	import type { AssetResponseDto } from '@immich/sdk';
 	import { groupAssets, takenAt } from '$lib/grouping';
+	import { tripLabel } from '$lib/trips';
 	import { setupImmich } from '$lib/immich';
 	import { clearSession, loadSession, loadSettings, saveSession } from '$lib/persist';
 	import { session, type SessionData, type Tally } from '$lib/session.svelte';
 	import { MEDIA_LABELS, type SessionSource } from '$lib/types';
-	import { localDate, plural } from '$lib/format';
+	import { plural } from '$lib/format';
 	import Battle from '$lib/components/Battle.svelte';
 	import Swipe from '$lib/components/Swipe.svelte';
 	import Cheatsheet from '$lib/components/Cheatsheet.svelte';
@@ -78,7 +80,7 @@
 	let resumed = $state(false);
 
 	let fetchCount = $state(0);
-	let fetchSummary = $state<{ assets: number; groups: number; tripDate?: string } | null>(null);
+	let fetchSummary = $state<{ assets: number; groups: number; trip?: string } | null>(null);
 	let fetchEmpty = $state(false);
 	let fetchKind = $state<SessionSource['kind'] | null>(null);
 	/** "videos only" while the picker's media filter (F) narrows sessions; empty for both. */
@@ -152,7 +154,7 @@
 		resetFetch('trip');
 		try {
 			const trip = await pickTrip(session.settings);
-			if (trip) await startSession(trip);
+			if (trip) await startSession(trip.source, trip.assets);
 			else fetchEmpty = true;
 		} catch (e) {
 			notify(e instanceof Error ? e.message : 'could not pick a trip', true);
@@ -160,21 +162,17 @@
 		}
 	}
 
-	async function startSession(source: SessionSource) {
+	/** Start a session on `source`; `assets` when they're already fetched (a trip finds its own). */
+	async function startSession(source: SessionSource, assets?: AssetResponseDto[]) {
 		resetFetch(source.kind);
 		try {
-			let groups =
+			const groups =
 				source.kind === 'duplicates'
 					? await fetchDuplicateGroups(session.settings)
 					: groupAssets(
-							await fetchSessionAssets(source, session.settings, (n) => (fetchCount = n)),
+							assets ?? (await fetchSessionAssets(source, session.settings, (n) => (fetchCount = n))),
 							session.settings
 						);
-			if (source.kind === 'trip') {
-				// The lead-in only exists to fetch the anchor's whole scene — open on that scene.
-				const at = groups.findIndex((g) => g.assets.some((a) => a.id === source.anchorId));
-				groups = groups.slice(Math.max(at, 0));
-			}
 			if (groups.length === 0) {
 				fetchEmpty = true;
 				return;
@@ -183,7 +181,7 @@
 			fetchSummary = {
 				assets: assetCount,
 				groups: groups.length,
-				tripDate: source.kind === 'trip' ? localDate(groups[0].assets[0].localDateTime) : undefined
+				trip: source.kind === 'trip' ? tripLabel(groups[0].assets[0].localDateTime, source.places) : undefined
 			};
 			session.start(groups, source, session.settings);
 			setTimeout(() => {
@@ -452,8 +450,8 @@
 					back to picker <Key action="confirm" />
 				</button>
 			{:else if fetchSummary}
-				{#if fetchSummary.tripDate}
-					<p class="mono trip">a trip back to {fetchSummary.tripDate}</p>
+				{#if fetchSummary.trip}
+					<p class="mono trip">{fetchSummary.trip}</p>
 				{/if}
 				<p class="mono summary">
 					{plural(fetchSummary.assets, 'asset')} → {plural(fetchSummary.groups, 'group')}{mediaNote &&
