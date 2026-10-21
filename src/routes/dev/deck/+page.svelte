@@ -28,7 +28,7 @@
 		log.push(phase);
 	};
 	const plan = $derived(
-		phase === 'review' ? buildPlan(session.groups, session.states, session.settings, session.albumAssignments(), session.placeAssignments()) : null
+		phase === 'review' ? buildPlan(session.groups, session.states, session.intent()) : null
 	);
 </script>
 

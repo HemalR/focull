@@ -1,4 +1,4 @@
-import { AssetTypeEnum } from '@immich/sdk';
+import { AssetTypeEnum, type AssetResponseDto } from '@immich/sdk';
 import { localDate, plural } from './format';
 import { onKey } from './keymap.svelte';
 import { previewUrl } from './immich';
@@ -42,8 +42,9 @@ const scopeOf = (overlay: Overlay | null, palette: Palette): PaletteScope | null
 /**
  * Battle logic both UIs share: who's up, the decisions (with their toasts), view state
  * (zoom, pan, sound, overlays), the keys that don't depend on layout, and keeping the next
- * previews warm. Each UI binds the decision keys itself (Battle decides at once, the deck
- * flings the card first). Construct during component init with a getter for its props.
+ * previews warm. Each UI binds the decision and favorite keys itself (Battle decides at once
+ * and favorites the photo held up, the deck flings the card first). Construct during
+ * component init with a getter for its props.
  */
 export class Duel {
 	readonly #props: () => DuelProps;
@@ -150,6 +151,13 @@ export class Duel {
 		this.#props().notify(keep ? `${asset.originalFileName} kept` : `${asset.originalFileName} → cull pile`);
 		session.decideSingle(keep);
 		this.#props().onSingleDone();
+	};
+
+	/** Make a photo a favorite at commit (what the photo frame shows), or take it back out. */
+	favorite = (asset: AssetResponseDto | undefined): void => {
+		if (!asset) return;
+		const on = session.toggleFavorite(asset);
+		this.#props().notify(`${on ? '♥' : '♡'} ${asset.originalFileName} — ${on ? 'a favorite at commit' : 'not a favorite'}`);
 	};
 
 	undo = (): void => {

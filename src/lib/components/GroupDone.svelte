@@ -16,7 +16,7 @@
 		onReopen: () => void;
 		/** The album palette opened/closed — the page holds Esc back meanwhile. */
 		onOverlay: (open: boolean) => void;
-		/** Review & commit the finished groups now (C). */
+		/** Review & commit everything decided so far (C). */
 		onReview: () => void;
 	}
 
@@ -134,11 +134,6 @@
 				<Key action="album" /> album
 			</button>
 			<button type="button" class="chip" onclick={undo} {@attach rebindable('undo')}><Key action="undo" /> undo</button>
-			{#if !last}
-				<button type="button" class="chip" onclick={onReview} {@attach rebindable('review')}>
-					<Key action="review" /> review & commit now
-				</button>
-			{/if}
 		</span>
 	</div>
 </div>

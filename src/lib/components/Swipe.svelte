@@ -10,10 +10,12 @@
 	import LocationPalette from './LocationPalette.svelte';
 	import Carousel from './Carousel.svelte';
 	import ExifStrip from './ExifStrip.svelte';
+	import FavoriteMark from './FavoriteMark.svelte';
 
 	/**
 	 * Touch battle deck. The challenger is a card you swipe; the one to beat sits in an inset.
 	 * Hold the card to see the one to beat in its place (blink comparison), double-tap to zoom.
+	 * Each edge of the card says what swiping that way does; ♥ favorites the photo on the card.
 	 */
 	const props: DuelProps = $props();
 	const duel = new Duel(() => props);
@@ -52,6 +54,9 @@
 		};
 	});
 	const BUTTON_ORDER: Dir[] = ['left', 'down', 'up', 'right'];
+	/** "← cull" on the left edge, "keep →" on the right, and so on. */
+	const edgeLabel = (dir: Dir, label: string) =>
+		dir === 'right' ? `${label} →` : `${{ left: '←', up: '↑', down: '↓' }[dir]} ${label}`;
 
 	/** Fraction of the card a drag must travel to count, or a flick speed (px/ms) that also counts. */
 	const DISTANCE = 0.28;
@@ -225,6 +230,8 @@
 	}
 	// Video groups swipe down to the reel, so "neither" has no direction there — just do it.
 	onKey('neither', () => duel.decide('neither'), () => ({ enabled: enabled && duel.dueling && !dirOfAction('neither') }));
+	onKey('favorite', () => duel.favorite(duel.champion), () => ({ enabled }));
+	onKey('favoriteChallenger', () => duel.favorite(duel.challenger), () => ({ enabled }));
 	createHotkey('Escape', () => duel.setOverlay(null), () => ({
 		enabled: duel.overlay === 'menu',
 		conflictBehavior: 'allow'
@@ -275,10 +282,16 @@
 		>
 			◇{groupAlbum ? ` ${groupAlbum.name}` : ''}
 		</button>
-		<span class="tallies mono">
+		<!-- The tally doubles as review & commit; inactive means the group-done card is up, so it rises above that. -->
+		<button
+			type="button"
+			class={['tallies', 'mono', !props.active && 'raised']}
+			aria-label="review & commit what's done"
+			onclick={props.onReview}
+		>
 			<span class="t-keep">✓ {tally.kept}</span>
 			<span class="t-rej">✕ {tally.culled}</span>
-		</span>
+		</button>
 		<button type="button" class="more" aria-label="menu" onclick={() => duel.setOverlay('menu')}>⋯</button>
 	</header>
 
@@ -291,7 +304,7 @@
 				style:--px="{duel.pan.x * 100}%"
 				style:--py="{duel.pan.y * 100}%"
 				role="application"
-				aria-label="swipe: left cull, right keep{duel.isSingle ? '' : ', up crown'}"
+				aria-label="swipe: {BUTTON_ORDER.flatMap((dir) => outcomes[dir] ? `${dir} ${outcomes[dir].label}` : []).join(', ')}"
 				{onpointerdown}
 				{onpointermove}
 				{onpointerup}
@@ -311,12 +324,26 @@
 			</div>
 		{/if}
 
+		{#if front && !dragging && !flying && !peeking && !duel.zoomed}
+			<div class="edges mono" aria-hidden="true">
+				{#each BUTTON_ORDER as dir (dir)}
+					{@const outcome = outcomes[dir]}
+					{#if outcome}<span class={['edge', dir, outcome.tone]}>{edgeLabel(dir, outcome.label)}</span>{/if}
+				{/each}
+			</div>
+		{/if}
+
 		{#if duel.champion && front && !duel.isSingle}
 			{@const other = peeking ? front : duel.champion}
 			<button type="button" class={['inset', peeking && 'swapped']} onclick={togglePin}>
 				<img src={thumbnailUrl(other.id)} alt="" style={thumbhashStyle(other)} />
+				<span class="inset-fav"><FavoriteMark asset={other} /></span>
 				<span class="tag mono">{peeking ? 'challenger' : '◆ to beat'}</span>
 			</button>
+		{/if}
+
+		{#if shown}
+			<span class="fav-btn"><FavoriteMark asset={shown} onclick={() => duel.favorite(shown)} /></span>
 		{/if}
 
 		{#if duel.group?.kind === 'video'}
@@ -385,9 +412,6 @@
 					✕✕ keep neither — both culled
 				</button>
 			{/if}
-			<button type="button" role="menuitem" onclick={fromMenu(props.onReview)}>
-				✓ review & commit what's done
-			</button>
 			<button type="button" role="menuitem" onclick={fromMenu(props.onHelp)}>? gestures & keys</button>
 			<button type="button" role="menuitem" onclick={fromMenu(props.onExit)}>← back to sessions</button>
 		</div>
@@ -456,7 +480,18 @@
 	.tallies {
 		margin-left: auto;
 		display: flex;
+		flex-shrink: 0;
 		gap: 10px;
+		padding: 2px 7px;
+		white-space: nowrap;
+		border: 1px solid var(--line);
+		border-radius: 4px;
+	}
+
+	/* Above GroupDone's dimmed overlay (z-index 30). */
+	.raised {
+		position: relative;
+		z-index: 31;
 	}
 
 	.t-keep {
@@ -575,6 +610,70 @@
 		display: block;
 	}
 
+	.inset-fav {
+		position: absolute;
+		top: 2px;
+		right: 2px;
+		font-size: 10px;
+	}
+
+	.edges {
+		position: absolute;
+		inset: 8px;
+		z-index: 1;
+		pointer-events: none;
+	}
+
+	.edge {
+		position: absolute;
+		padding: 2px 8px;
+		border-radius: 10px;
+		background: rgb(0 0 0 / 0.6);
+		font-size: 11px;
+		white-space: nowrap;
+	}
+
+	.edge.left,
+	.edge.right {
+		top: 50%;
+		transform: translateY(-50%);
+	}
+
+	.edge.left {
+		left: 6px;
+	}
+
+	.edge.right {
+		right: 6px;
+	}
+
+	.edge.up,
+	.edge.down {
+		left: 50%;
+		transform: translateX(-50%);
+	}
+
+	.edge.up {
+		top: 6px;
+	}
+
+	.edge.down {
+		bottom: 6px;
+	}
+
+	.fav-btn {
+		position: absolute;
+		right: 16px;
+		bottom: 16px;
+		z-index: 2;
+		font-size: 22px;
+	}
+
+	.fav-btn :global(.fav) {
+		padding: 4px 10px;
+		border-radius: 8px;
+	}
+
 	.inset .tag {
 		position: absolute;
 		left: 0;
@@ -604,7 +703,7 @@
 
 	.hint {
 		position: absolute;
-		bottom: 14px;
+		bottom: 40px;
 		left: 0;
 		right: 0;
 		margin: 0;

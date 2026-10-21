@@ -6,6 +6,7 @@
 	import LocationPalette from './LocationPalette.svelte';
 	import Pane from './Pane.svelte';
 	import Carousel from './Carousel.svelte';
+	import Key from './Key.svelte';
 	import KeyLegend, { type LegendItem } from './KeyLegend.svelte';
 
 	/** Keyboard-first side-by-side battle: champion pane left, challenger pane right. */
@@ -60,6 +61,11 @@
 	onKey('keep', judgeShown(true), shownJudgeable);
 	onKey('cull', judgeShown(false), shownJudgeable);
 
+	// Favorite the champion (or, while one is held up, the one shown), or the challenger.
+	const keysActive = () => ({ enabled: duel.keysActive });
+	onKey('favorite', () => duel.favorite(lifted === 'challenger' ? duel.challenger : duel.champion), keysActive);
+	onKey('favoriteChallenger', () => duel.favorite(duel.challenger), keysActive);
+
 	/**
 	 * Shift held → magnifier loupe. Read from each event's own modifier state rather than
 	 * tracking keydown/keyup pairs: input methods can swallow a lone Shift release, and the
@@ -83,7 +89,6 @@
 			{ action: 'location', label: 'location', run: () => duel.setOverlay('location') },
 			{ action: 'skip', label: 'skip group — stays unreviewed', run: duel.skip },
 			{ action: 'undo', label: 'undo', run: duel.undo },
-			{ action: 'review', label: 'review & commit now', run: props.onReview },
 			{ action: ['liftChallenger', 'liftChampion'], label: 'hold — full screen' },
 			{ action: 'zoom', label: 'zoom', run: duel.toggleZoom },
 			{ keys: '?', label: 'shortcuts', run: props.onHelp }
@@ -96,6 +101,7 @@
 			return [
 				{ action: 'keep', label: 'keep', run: () => duel.decideSingle(true) },
 				{ action: 'cull', label: 'cull', run: () => duel.decideSingle(false) },
+				{ action: 'favorite', label: 'favorite', run: () => duel.favorite(duel.champion) },
 				...mute,
 				...shared
 			];
@@ -105,6 +111,7 @@
 			{ action: 'dethrone', label: 'challenger wins', run: () => duel.decide('dethrone') },
 			{ action: 'keepBoth', label: 'keep both — new one to beat', run: () => duel.decide('keepBoth') },
 			{ action: 'neither', label: 'keep neither', run: () => duel.decide('neither') },
+			{ action: ['favorite', 'favoriteChallenger'], label: 'favorite champion / challenger' },
 			...(duel.canReel ? [{ action: 'reel', label: 'add to reel', run: () => duel.decide('reel') } as const] : []),
 			...mute,
 			...shared
@@ -136,11 +143,19 @@
 		>
 			◇ {groupAlbum?.name ?? 'no album'}
 		</button>
-		<span class="tallies mono">
-			<span class="t-keep" title="kept">✓ {tally.kept}</span>
-			<span class="t-rej" title="culled">✕ {tally.culled}</span>
-			<span class="t-reel" title="reel">◉ {tally.reel}</span>
-		</span>
+		<!-- The tally doubles as review & commit; inactive means the group-done card is up, so it rises above that. -->
+		<button
+			type="button"
+			class={['tallies', 'mono', !props.active && 'raised']}
+			title="review & commit what's done"
+			onclick={props.onReview}
+			{@attach rebindable('review')}
+		>
+			<span class="t-keep">✓ {tally.kept}</span>
+			<span class="t-rej">✕ {tally.culled}</span>
+			<span class="t-reel">◉ {tally.reel}</span>
+			<Key action="review" />
+		</button>
 	</header>
 
 	<main class={['stage', duel.isSingle && 'single']}>
@@ -242,8 +257,22 @@
 	.tallies {
 		margin-left: auto;
 		display: flex;
+		align-items: center;
 		gap: 14px;
+		padding: 2px 4px 2px 10px;
+		border: 1px solid var(--line);
+		border-radius: 4px;
 		font-size: 12px;
+	}
+
+	.tallies:hover {
+		border-color: var(--mut);
+	}
+
+	/* Above GroupDone's dimmed overlay (z-index 30). */
+	.raised {
+		position: relative;
+		z-index: 31;
 	}
 
 	.t-keep {

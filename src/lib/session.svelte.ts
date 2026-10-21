@@ -1,4 +1,5 @@
 import type { AssetResponseDto } from '@immich/sdk';
+import { isFinished, settled, type Intent } from './commit';
 import { lacksLocation } from './places';
 import {
 	DEFAULT_SETTINGS,
@@ -23,8 +24,10 @@ export interface SessionData {
 	gi: number;
 	/** Indices of groups the user skipped — left unfinished on purpose, never committed. */
 	skipped: number[];
-	/** Indices of groups already committed partway through the session — never planned again. */
-	committed: number[];
+	/** Assets already committed partway through the session — never planned again. */
+	committedIds: string[];
+	/** Sessions saved before commits were tracked per asset: indices of committed groups. */
+	committed?: number[];
 	/** Epoch ms when the session started, for the done-screen stats line. */
 	startedAt: number;
 	/** Single photos added to albums (Shift+A), applied at commit. */
@@ -37,6 +40,8 @@ export interface SessionData {
 	groupPlaces: Record<string, Place>;
 	/** By asset id: one photo's own pick (Shift+P); null leaves its location as it is. */
 	photoPlaces: Record<string, Place | null>;
+	/** By asset id: whether it ends up an Immich favorite (S), where that differs from Immich. */
+	favorites: Record<string, boolean>;
 }
 
 export interface Tally {
@@ -77,14 +82,16 @@ class CullSession {
 	states = $state<GroupState[]>([]);
 	gi = $state(0);
 	skipped = $state<number[]>([]);
-	committed = $state<number[]>([]);
+	committedIds = $state<string[]>([]);
+	#committed = $derived(new Set(this.committedIds));
 	startedAt = $state(0);
-	// Album intent isn't part of undo snapshots — it shouldn't vanish when a duel is undone.
+	// Album, location and favorite intent isn't part of undo snapshots — it shouldn't vanish when a duel is undone.
 	stagedAlbums = $state<StagedAlbum[]>([]);
 	albumRuns = $state<AlbumRun[]>([]);
 	albumExcluded = $state<string[]>([]);
 	groupPlaces = $state<Record<string, Place>>({});
 	photoPlaces = $state<Record<string, Place | null>>({});
+	favorites = $state<Record<string, boolean>>({});
 	/** Bumped on every mutation — watch it to persist. */
 	rev = $state(0);
 	#undo: string[] = [];
@@ -106,12 +113,11 @@ class CullSession {
 		return this.states.reduce((sum, s) => sum + Object.keys(s.fates).length, 0);
 	}
 
-	/** Fully judged and not skipped — the groups buildPlan/commit should see. */
+	/** Fully judged and not skipped. */
 	isJudged(i: number): boolean {
 		const group = this.groups[i];
 		const s = this.states[i];
-		if (!group || !s || this.skipped.includes(i)) return false;
-		return group.assets.length === 1 ? s.fates[0] !== undefined : s.queue.length === 0;
+		return !!group && !!s && !this.skipped.includes(i) && isFinished(group, s);
 	}
 
 	/** Still needs the user's attention: not skipped and not judged. */
@@ -119,9 +125,17 @@ class CullSession {
 		return !this.skipped.includes(i) && !this.isJudged(i) && this.groups[i] !== undefined;
 	}
 
-	/** What the next commit covers: judged and not committed yet. */
+	/** Asset indices of group `i` the next commit sends: settled (see `settled`), not skipped, not committed yet. */
+	toCommit(i: number): number[] {
+		const group = this.groups[i];
+		const s = this.states[i];
+		if (!group || !s || this.skipped.includes(i)) return [];
+		return settled(group, s).filter((ai) => !this.#committed.has(group.assets[ai].id));
+	}
+
+	/** Whether the next commit has anything of group `i` to send. */
 	isCommittable(i: number): boolean {
-		return this.isJudged(i) && !this.committed.includes(i);
+		return this.toCommit(i).length > 0;
 	}
 
 	/** Groups still waiting to be culled. */
@@ -129,9 +143,10 @@ class CullSession {
 		return this.groups.filter((_, i) => this.isPending(i)).length;
 	}
 
-	/** The committable groups just went to Immich: never plan them again, and undo can't reach back into them. */
+	/** Everything committable just went to Immich: never plan it again, and undo can't reach back into it. */
 	markCommitted(): void {
-		this.committed = [...this.committed, ...this.groups.flatMap((_, i) => (this.isCommittable(i) ? [i] : []))];
+		const sent = this.groups.flatMap((group, i) => this.toCommit(i).map((ai) => group.assets[ai].id));
+		this.committedIds = [...this.committedIds, ...sent];
 		this.#undo = [];
 		this.rev++;
 	}
@@ -160,13 +175,14 @@ class CullSession {
 			states: $state.snapshot(this.states),
 			gi: this.gi,
 			skipped: $state.snapshot(this.skipped),
-			committed: $state.snapshot(this.committed),
+			committedIds: $state.snapshot(this.committedIds),
 			startedAt: this.startedAt,
 			stagedAlbums: $state.snapshot(this.stagedAlbums),
 			albumRuns: $state.snapshot(this.albumRuns),
 			albumExcluded: $state.snapshot(this.albumExcluded),
 			groupPlaces: $state.snapshot(this.groupPlaces),
-			photoPlaces: $state.snapshot(this.photoPlaces)
+			photoPlaces: $state.snapshot(this.photoPlaces),
+			favorites: $state.snapshot(this.favorites)
 		};
 	}
 
@@ -180,13 +196,14 @@ class CullSession {
 		}));
 		this.gi = 0;
 		this.skipped = [];
-		this.committed = [];
+		this.committedIds = [];
 		this.startedAt = Date.now();
 		this.stagedAlbums = [];
 		this.albumRuns = [];
 		this.albumExcluded = [];
 		this.groupPlaces = {};
 		this.photoPlaces = {};
+		this.favorites = {};
 		this.source = source;
 		this.settings = { ...settings };
 		this.#undo = [];
@@ -198,13 +215,15 @@ class CullSession {
 		this.states = data.states.map((s) => ({ ...s, lostTo: s.lostTo ?? {} }));
 		this.gi = Math.min(data.gi, data.groups.length - 1);
 		this.skipped = data.skipped ?? [];
-		this.committed = data.committed ?? [];
+		this.committedIds =
+			data.committedIds ?? (data.committed ?? []).flatMap((i) => data.groups[i]?.assets.map((a) => a.id) ?? []);
 		this.startedAt = data.startedAt ?? Date.now();
 		this.stagedAlbums = data.stagedAlbums ?? [];
 		this.albumRuns = data.albumRuns ?? [];
 		this.albumExcluded = data.albumExcluded ?? [];
 		this.groupPlaces = data.groupPlaces ?? {};
 		this.photoPlaces = data.photoPlaces ?? {};
+		this.favorites = data.favorites ?? {};
 		this.source = data.source;
 		this.settings = { ...DEFAULT_SETTINGS, ...data.settings };
 		this.#undo = [];
@@ -216,13 +235,14 @@ class CullSession {
 		this.states = [];
 		this.gi = 0;
 		this.skipped = [];
-		this.committed = [];
+		this.committedIds = [];
 		this.startedAt = 0;
 		this.stagedAlbums = [];
 		this.albumRuns = [];
 		this.albumExcluded = [];
 		this.groupPlaces = {};
 		this.photoPlaces = {};
+		this.favorites = {};
 		this.source = null;
 		this.#undo = [];
 		this.rev++;
@@ -433,6 +453,29 @@ class CullSession {
 			}
 		});
 		return out;
+	}
+
+	/** Everything to apply at commit beyond the duels — buildPlan keeps what holds. */
+	intent(): Intent {
+		return {
+			albums: this.albumAssignments(),
+			places: this.placeAssignments(),
+			favorites: $state.snapshot(this.favorites)
+		};
+	}
+
+	/** Whether an asset ends up an Immich favorite: its own pick (S), else as it is in Immich. */
+	isFavorite(asset: AssetResponseDto): boolean {
+		return this.favorites[asset.id] ?? asset.isFavorite;
+	}
+
+	/** Make an asset a favorite at commit, or take it out of the favorites. Returns true when it'll be one. */
+	toggleFavorite(asset: AssetResponseDto): boolean {
+		const on = !this.isFavorite(asset);
+		if (on === asset.isFavorite) delete this.favorites[asset.id];
+		else this.favorites[asset.id] = on;
+		this.rev++;
+		return on;
 	}
 
 	undo(): boolean {

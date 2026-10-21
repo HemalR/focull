@@ -24,30 +24,68 @@ export interface CommitPlan {
 	/** Each stack: winner first (Immich makes the first ID the primary). */
 	stacks: string[][];
 	reels: ReelPlan[];
-	/** Every asset a finished group processed — tagged as reviewed so later sessions skip them. */
+	/** Every settled asset this commit sends — tagged as reviewed so later sessions skip them. */
 	reviewedIds: string[];
-	/** Album assignments for finished groups, minus anything culled. */
+	/** Album assignments for the settled survivors. */
 	albums: StagedAlbum[];
-	/** Location moves for finished groups, minus anything culled. */
+	/** Location moves for the settled survivors. */
 	locations: PlannedPlace[];
+	/** Favorites to set (settled survivors only) and to clear (settled assets). */
+	favorites: { on: string[]; off: string[] };
 }
 
-/** Pure translation of finished battle states into Immich writes; drives both the review screen and the commit. */
+/** What the user asked for beyond the duels, across the whole session; buildPlan keeps what holds. */
+export interface Intent {
+	albums?: StagedAlbum[];
+	places?: PlannedPlace[];
+	/** By asset id: whether it should end up a favorite. */
+	favorites?: Record<string, boolean>;
+}
+
+/** A group is finished once its queue is empty — a single once it's been judged. */
+export const isFinished = (group: CullGroup, state: GroupState): boolean =>
+	group.assets.length === 1 ? state.fates[0] !== undefined : state.queue.length === 0;
+
+/**
+ * The assets (by index) whose fate is settled: all of a finished group; in a photo group still
+ * being culled, the ones judged so far, while its champion stays in play. Video groups wait for
+ * their end, since a reel needs the whole event.
+ */
+export function settled(group: CullGroup, state: GroupState): number[] {
+	const all = group.assets.map((_, ai) => ai);
+	if (isFinished(group, state)) return all;
+	return group.kind === 'photo' ? all.filter((ai) => state.fates[ai] !== undefined) : [];
+}
+
+/**
+ * Pure translation of settled decisions into Immich writes, minus the `committed` asset ids an
+ * earlier commit already sent; drives both the review screen and the commit. A champion still in
+ * play counts as the winner its culls stack behind; should it lose later, Immich folds its stack
+ * into the winner's when that one is stacked.
+ */
 export function buildPlan(
 	groups: CullGroup[],
 	states: GroupState[],
-	_settings: Settings,
-	stagedAlbums: StagedAlbum[] = [],
-	places: PlannedPlace[] = []
+	{ albums = [], places = [], favorites = {} }: Intent = {},
+	committed: ReadonlySet<string> = new Set()
 ): CommitPlan {
-	const plan: CommitPlan = { rejectIds: [], stacks: [], reels: [], reviewedIds: [], albums: [], locations: [] };
+	const plan: CommitPlan = {
+		rejectIds: [],
+		stacks: [],
+		reels: [],
+		reviewedIds: [],
+		albums: [],
+		locations: [],
+		favorites: { on: [], off: [] }
+	};
 
 	groups.forEach((group, i) => {
 		const state = states[i];
-		if (state.queue.length > 0) return; // group not finished — leave it untouched
-		plan.reviewedIds.push(...group.assets.map((a) => a.id));
+		const idxs = settled(group, state).filter((ai) => !committed.has(group.assets[ai].id));
+		if (idxs.length === 0) return;
+		plan.reviewedIds.push(...idxs.map((ai) => group.assets[ai].id));
 
-		const rejectIdxs = group.assets.map((_, ai) => ai).filter((ai) => state.fates[ai] === 'rejected');
+		const rejectIdxs = idxs.filter((ai) => state.fates[ai] === 'rejected');
 		const rejects = rejectIdxs.map((ai) => group.assets[ai].id);
 		plan.rejectIds.push(...rejects);
 
@@ -86,17 +124,22 @@ export function buildPlan(
 		}
 	});
 
-	// Album and location intent holds for assets of finished groups that survived.
+	// Album, location and favorite intent holds for the settled survivors; a champion still in play waits.
 	const rejected = new Set(plan.rejectIds);
-	const finished = new Set(plan.reviewedIds);
-	const holds = (ids: string[]) => ids.filter((id) => finished.has(id) && !rejected.has(id));
-	for (const staged of stagedAlbums) {
+	const sent = new Set(plan.reviewedIds);
+	const kept = (id: string) => sent.has(id) && !rejected.has(id);
+	const holds = (ids: string[]) => ids.filter(kept);
+	for (const staged of albums) {
 		const assetIds = holds(staged.assetIds);
 		if (assetIds.length > 0) plan.albums.push({ ...staged, assetIds });
 	}
 	for (const { place, assetIds: ids } of places) {
 		const assetIds = holds(ids);
 		if (assetIds.length > 0) plan.locations.push({ place, assetIds });
+	}
+	for (const [id, on] of Object.entries(favorites)) {
+		// Unfavoriting holds for a culled photo too — it shouldn't stay on the photo frame.
+		if (on ? kept(id) : sent.has(id)) plan.favorites[on ? 'on' : 'off'].push(id);
 	}
 	return plan;
 }
@@ -208,6 +251,17 @@ export async function commitPlan(
 			log(`Location "${place.label}" — ${assetIds.length} asset${assetIds.length === 1 ? '' : 's'}`);
 		} catch (e) {
 			log(`Could not set location "${place.label}": ${message(e)}`);
+		}
+	}
+
+	for (const on of [true, false]) {
+		const ids = plan.favorites[on ? 'on' : 'off'];
+		if (ids.length === 0) continue;
+		try {
+			await updateAssets({ assetBulkUpdateDto: { ids, isFavorite: on } });
+			log(`${on ? 'Favorited' : 'Unfavorited'} ${ids.length} asset${ids.length === 1 ? '' : 's'}`);
+		} catch (e) {
+			log(`Could not ${on ? 'favorite' : 'unfavorite'} ${ids.length} asset${ids.length === 1 ? '' : 's'}: ${message(e)}`);
 		}
 	}
 

@@ -4,6 +4,7 @@
 	import { fmtDuration } from '$lib/format';
 	import { thumbhashStyle } from '$lib/thumbhash';
 	import ExifStrip from './ExifStrip.svelte';
+	import FavoriteMark from './FavoriteMark.svelte';
 
 	interface Props {
 		asset: AssetResponseDto;
@@ -164,6 +165,7 @@
 				{@render media()}
 			</div>
 		{/if}
+		<span class="fav-at"><FavoriteMark {asset} /></span>
 		{#if isVideo && ontogglemute}
 			<button type="button" class="mute mono" onclick={ontogglemute} title="toggle sound (M)">
 				{muted ? '♪ unmute' : '♪ mute'}
@@ -302,6 +304,15 @@
 		color: var(--reel);
 		font-family: var(--mono);
 		font-size: 11px;
+	}
+
+	.fav-at {
+		position: absolute;
+		top: 10px;
+		right: 10px;
+		z-index: 6;
+		font-size: 18px;
+		pointer-events: none;
 	}
 
 	.mute {

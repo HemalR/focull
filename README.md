@@ -25,7 +25,8 @@ These are the defaults, and every one can be changed. **Shift-click any key you 
 | `→` / `l` (or click challenger) | Challenger wins — takes the crown, old champion is culled |
 | `B` | Keep both — the challenger becomes the one to beat for the shots that follow |
 | `N` | Keep neither — both are culled, and the next challenger becomes the one to beat |
-| `S` | Add clip to the stitch reel (video groups) |
+| `S` / `Shift+S` | Favorite the champion / challenger, or take it out of the favorites — Immich's ♥, set at commit (point a photo frame at your favorites) |
+| `V` | Add clip to the stitch reel (video groups) |
 | `A` | Album for this group **and the ones after it**: every keeper goes in at commit, until you pick another (or "no album"). Existing albums or new ones created on the spot |
 | `Shift+A` | Just the champion: add it to an album, or take it out of the group's (`Tab` switches inside the palette) |
 | `P` | Location for this group's photos that have none: search a place (Immich's own place search) or take one from photos taken nearby. Set at commit |
@@ -33,22 +34,22 @@ These are the defaults, and every one can be changed. **Shift-click any key you 
 | `G` | Skip this group — it stays unreviewed for a later session |
 | `M` | Mute / unmute videos |
 | `U` | Undo last decision |
-| hold `↑` / `↓` (or `k` / `j`) | Full screen — hold the challenger (`↑`/`k`) or champion (`↓`/`j`) up to your face; while held, `←`/`→` flip between the two, `Space` picks the one shown as the winner, `X` culls it and `B` keeps both; release to go back |
+| hold `↑` / `↓` (or `k` / `j`) | Full screen — hold the challenger (`↑`/`k`) or champion (`↓`/`j`) up to your face; while held, `←`/`→` flip between the two, `Space` picks the one shown as the winner, `X` culls it, `B` keeps both and `S` favorites it; release to go back |
 | `Z` | Full-resolution zoom on both panes with synced panning (sharpness duel) |
 | `Space` / `X` | Keep / cull (single-asset groups) |
 | `Enter` | Advance (next group, review, commit; another trip when done) |
-| `C` | Review & commit the groups you've finished **now**. The rest wait: Esc in review goes back to culling, and after committing you can keep culling the same trip (committed groups are never sent twice) |
+| `C` (or click the ✓ ✕ tally, top right) | Review & commit everything you've decided **now** — a photo group you're partway through included: its calls so far go in, and its champion stays in play for the rest (video groups wait for their end, as a reel needs every clip). The rest wait: Esc in review goes back to culling, and after committing you can keep culling the same trip (nothing is sent twice) |
 | `F` | In the picker: cycle photos only → videos only → both, for every session (trips included) |
 | `?` | Keyboard cheatsheet |
 | `Esc` | Back to the session picker |
 
-The current album shows in the top bar (click it to change), on each group's summary, and on the review screen, where ◇ on a keeper takes it out of its album. Culled photos never go in, and a stitched reel joins its clips' album. Each photo's footer shows where and when it was taken; a location you've set shows in amber (⌖) until commit, when Immich gets the coordinates and names the place itself. Locations are city-level, and filling a group never touches photos that already have GPS.
+The current album shows in the top bar (click it to change), on each group's summary, and on the review screen, where ◇ on a keeper takes it out of its album. Culled photos never go in, and a stitched reel joins its clips' album. A ♥ marks favorites on each photo and thumbnail, in amber until commit; only photos you keep become favorites, and a culled photo leaves them. Each photo's footer shows where and when it was taken; a location you've set shows in amber (⌖) until commit, when Immich gets the coordinates and names the place itself. Locations are city-level, and filling a group never touches photos that already have GPS.
 
 Click any undecided thumbnail in the carousel to make it the next challenger, and hold `Shift` while hovering a photo pane for a magnifier loupe. On the review screen, click any judged thumbnail to change its fate before committing.
 
 ## Phone (swipe deck)
 
-On touch screens and narrow windows the battle becomes a card deck: the challenger fills the screen and the one to beat sits in an inset.
+On touch screens and narrow windows the battle becomes a card deck: the challenger fills the screen and the one to beat sits in an inset. Each edge of the card says what swiping that way does.
 
 | Gesture | Action |
 |---|---|
@@ -58,8 +59,9 @@ On touch screens and narrow windows the battle becomes a card deck: the challeng
 | Swipe `↓` | Keep neither — both culled (in video groups: add to the reel; neither is in the `⋯` menu) |
 | Hold | See the one to beat in the card's place — a blink comparison (tap the inset to pin it) |
 | Double-tap | Full-resolution zoom; drag pans, holding still compares at the same zoom |
+| ♥ | Favorite the photo on the card, or take it out of the favorites |
 
-Every swipe also has a button, plus undo; the `⋯` menu has albums, zoom, skip and the way back to sessions. Add focull to your home screen for a full-screen app.
+Every swipe also has a button, plus undo; tap the ✓ ✕ tally to review & commit what's done, and the `⋯` menu has albums, zoom, skip and the way back to sessions. Add focull to your home screen for a full-screen app.
 
 ## Running it
 

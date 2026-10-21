@@ -44,9 +44,9 @@ describe('group albums', () => {
 it('files only the survivors of finished groups', () => {
 	const done: GroupState = { championIdx: 0, queue: [], fates: { 1: 'rejected' }, lostTo: { 1: 0 } };
 	const open: GroupState = { championIdx: 0, queue: [1], fates: {}, lostTo: {} };
-	const plan = buildPlan([group('a', 'b'), group('c', 'd')], [done, open], DEFAULT_SETTINGS, [
-		{ ...X, assetIds: ['a', 'b', 'c', 'd'] }
-	]);
+	const plan = buildPlan([group('a', 'b'), group('c', 'd')], [done, open], {
+		albums: [{ ...X, assetIds: ['a', 'b', 'c', 'd'] }]
+	});
 	expect(plan.albums).toEqual([{ ...X, assetIds: ['a'] }]);
 });
 
@@ -64,6 +64,23 @@ it('commits each finished group once, then carries on with the rest', () => {
 	expect(session.isCommittable(0)).toBe(false);
 });
 
+it('commits a photo group partway: the calls so far go in while the champion stays in play', () => {
+	const video: CullGroup = { ...group('v', 'w', 'x'), kind: 'video' };
+	session.start([group('a', 'b', 'c', 'd'), video], { kind: 'unreviewed' }, DEFAULT_SETTINGS);
+	const plan = () => buildPlan(session.groups, session.states, session.intent(), new Set(session.committedIds));
+	session.defend();
+	session.defend(); // b and c lose to a; d still waits
+	expect(plan()).toMatchObject({ reviewedIds: ['b', 'c'], rejectIds: ['b', 'c'], stacks: [['a', 'b', 'c']] });
+
+	session.markCommitted();
+	session.dethrone(); // d beats a — Immich folds a's stack into d's
+	expect(plan()).toMatchObject({ reviewedIds: ['a', 'd'], rejectIds: ['a'], stacks: [['d', 'a']] });
+
+	session.gotoNextPending();
+	session.defend(); // a reel needs the whole event, so video groups wait for their end
+	expect(session.isCommittable(1)).toBe(false);
+});
+
 it('keeps neither: both culled, and the next challenger becomes the one to beat', () => {
 	session.start([group('a', 'b', 'c'), group('d', 'e')], { kind: 'unreviewed' }, DEFAULT_SETTINGS);
 	session.neither();
@@ -73,7 +90,21 @@ it('keeps neither: both culled, and the next challenger becomes the one to beat'
 	session.neither(); // the last two: nobody survives
 	expect(session.current).toMatchObject({ championIdx: 0, queue: [], fates: { 0: 'rejected', 1: 'rejected' } });
 
-	const plan = buildPlan(session.groups, session.states, DEFAULT_SETTINGS);
+	const plan = buildPlan(session.groups, session.states);
 	expect(plan.rejectIds).toEqual(['a', 'b', 'd', 'e']);
 	expect(plan.stacks).toEqual([['c', 'a', 'b']]);
+});
+
+it('favorites only the survivors, and unfavorites culled photos too', () => {
+	const photo = (id: string, isFavorite = false) => ({ id, isFavorite }) as AssetResponseDto;
+	const [a, b, c] = [photo('a'), photo('b'), photo('c', true)];
+	session.start([{ id: 'g', kind: 'photo', assets: [a, b, c] }], { kind: 'unreviewed' }, DEFAULT_SETTINGS);
+	expect([a, b, c].map((p) => session.toggleFavorite(p))).toEqual([true, true, false]);
+	session.toggleFavorite(c); // back to how Immich has it: nothing to change
+	expect(session.favorites).toEqual({ a: true, b: true });
+
+	session.toggleFavorite(c);
+	session.defend();
+	session.defend(); // b and c culled
+	expect(buildPlan(session.groups, session.states, session.intent()).favorites).toEqual({ on: ['a'], off: ['c'] });
 });

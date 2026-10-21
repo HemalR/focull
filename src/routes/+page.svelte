@@ -221,16 +221,15 @@
 		}
 	}
 
-	/** Plan over judged groups only — skipped (and unjudged single) groups must stay untouched. */
+	/** Plan over committable groups only — skipped groups must stay untouched. */
 	function computePlan(): CommitPlan {
-		const judged = session.groups.map((_, i) => i).filter((i) => session.isCommittable(i));
+		const ready = session.groups.map((_, i) => i).filter((i) => session.isCommittable(i));
 		return sanitize(
 			buildPlan(
-				judged.map((i) => session.groups[i]),
-				judged.map((i) => session.states[i]),
-				session.settings,
-				session.albumAssignments(),
-				session.placeAssignments()
+				ready.map((i) => session.groups[i]),
+				ready.map((i) => session.states[i]),
+				session.intent(),
+				new Set(session.committedIds)
 			)
 		);
 	}
@@ -241,10 +240,10 @@
 		stacks: p.stacks.map((s) => [...new Set(s)]).filter((s) => s.length > 1)
 	});
 
-	/** Review & commit the finished groups now; the rest wait, and culling can carry on after. */
+	/** Review & commit everything decided so far; the rest waits, and culling can carry on after. */
 	function reviewNow() {
 		if (!session.groups.some((_, i) => session.isCommittable(i))) {
-			notify('nothing finished yet — finish a group first', true);
+			notify('nothing decided yet', true);
 			return;
 		}
 		plan = computePlan();
@@ -262,11 +261,11 @@
 		phase = 'committing';
 		commitLog = [];
 		commitFailed = false;
-		const committing = session.groups.filter((_, i) => session.isCommittable(i));
+		const committing = session.groups.flatMap((group, i) => session.toCommit(i).map((ai) => group.assets[ai]));
 		try {
 			await commitPlan(plan, session.settings, (line) => commitLog.push(line));
 			// Only ever advance: trips and ranges into the past must not rewind "new since last cull".
-			const newest = Math.max(...committing.flatMap((g) => g.assets.map(takenAt)));
+			const newest = Math.max(...committing.map(takenAt));
 			const lastCull = Date.parse(localStorage.getItem('focull.lastCull') ?? '') || 0;
 			if (Number.isFinite(newest) && newest > lastCull) {
 				localStorage.setItem('focull.lastCull', new Date(newest).toISOString());

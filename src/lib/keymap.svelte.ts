@@ -56,6 +56,18 @@ const DEFAULTS = {
 		label: 'keep neither — both culled; the next challenger becomes the one to beat',
 		section: 'battle'
 	},
+	favorite: {
+		keys: ['S'],
+		name: 'favorite',
+		label: '♥ favorite the champion, or take it out — for the photo frame, set at commit · held up full screen: the one shown',
+		section: 'battle'
+	},
+	favoriteChallenger: {
+		keys: ['Shift+S'],
+		name: 'favorite challenger',
+		label: '♥ favorite the challenger, or take it out',
+		section: 'battle'
+	},
 	album: {
 		keys: ['A'],
 		name: 'group album',
@@ -115,7 +127,7 @@ const DEFAULTS = {
 		section: 'singles'
 	},
 	reel: {
-		keys: ['S'],
+		keys: ['V'],
 		name: 'add to reel',
 		label: 'add challenger to reel (stitched on commit)',
 		section: 'video groups'
@@ -137,7 +149,7 @@ const DEFAULTS = {
 	review: {
 		keys: ['C'],
 		name: 'review & commit now',
-		label: 'review & commit the groups you’ve finished — the rest wait, and you can keep culling after',
+		label: 'review & commit everything decided so far, a group you’re partway through included — the rest wait, and you can keep culling after',
 		section: 'everywhere'
 	},
 	confirm: {
@@ -172,7 +184,9 @@ const FIXED: Partial<Record<Section | 'swipe deck (touch / narrow screens)' | 'r
 		{ keys: '↑ swipe', label: 'crown it — the old one to beat is culled' },
 		{ keys: '↓ swipe', label: 'keep neither — both culled (video groups: add to reel)' },
 		{ keys: 'hold', label: 'see the one to beat in its place (tap the inset to pin)' },
-		{ keys: 'double-tap', label: 'zoom · drag pans · hold still compares' }
+		{ keys: '♥', label: 'favorite the photo on the card, or take it out' },
+		{ keys: 'double-tap', label: 'zoom · drag pans · hold still compares' },
+		{ keys: 'tap ✓ ✕', label: 'review & commit what’s done' }
 	],
 	review: [{ keys: 'click thumb', label: 'cycle fate — culled → kept (→ reel for video)' }],
 	everywhere: [

@@ -2,6 +2,7 @@
 	import type { CullGroup, GroupState } from '$lib/types';
 	import { thumbnailUrl } from '$lib/immich';
 	import { thumbhashStyle } from '$lib/thumbhash';
+	import FavoriteMark from './FavoriteMark.svelte';
 
 	let {
 		group,
@@ -52,11 +53,13 @@
 				onclick={() => onJump(idx)}
 			>
 				<img src={thumbnailUrl(asset.id)} alt="" loading="lazy" style={thumbhashStyle(asset)} />
+				<span class="fav-at"><FavoriteMark {asset} /></span>
 			</button>
 		{:else}
 			<span class={['thumb', st]}>
 				<img src={thumbnailUrl(asset.id)} alt="" loading="lazy" style={thumbhashStyle(asset)} />
 				{#if marks[st]}<span class="mark">{marks[st]}</span>{/if}
+				<span class="fav-at"><FavoriteMark {asset} /></span>
 			</span>
 		{/if}
 	{/each}
@@ -117,6 +120,13 @@
 		font-size: 12px;
 		color: var(--ink);
 		text-shadow: 0 1px 3px #000;
+	}
+
+	.fav-at {
+		position: absolute;
+		top: 2px;
+		right: 2px;
+		font-size: 10px;
 	}
 
 	.thumb.champion .mark {

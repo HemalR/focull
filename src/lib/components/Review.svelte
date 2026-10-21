@@ -7,6 +7,7 @@
 	import { session } from '$lib/session.svelte';
 	import { sameAlbum, type AlbumRef, type Fate } from '$lib/types';
 	import { onKey, rebindable } from '$lib/keymap.svelte';
+	import FavoriteMark from './FavoriteMark.svelte';
 	import Key from './Key.svelte';
 	import KeyLegend from './KeyLegend.svelte';
 
@@ -51,21 +52,26 @@
 			: null;
 	};
 
-	/** Winners of judged groups + everything explicitly kept, chronological. */
-	const keepers = $derived.by(() => {
-		const out: Thumb[] = [];
-		session.groups.forEach((g, gi) => {
-			if (!session.isCommittable(gi)) return;
+	/** Winners of finished groups + everything explicitly kept that this commit sends, chronological. */
+	const keepers = $derived(
+		session.groups.flatMap((g, gi) => {
 			const s = session.states[gi];
-			g.assets.forEach((asset, ai) => {
-				const fate = s.fates[ai];
-				if (fate === 'kept' || (ai === s.championIdx && fate === undefined)) {
-					out.push({ asset, gi, ai, editable: fate !== undefined });
-				}
-			});
-		});
-		return out;
-	});
+			return session
+				.toCommit(gi)
+				.filter((ai) => s.fates[ai] === 'kept' || (ai === s.championIdx && s.fates[ai] === undefined))
+				.map((ai): Thumb => ({ asset: g.assets[ai], gi, ai, editable: s.fates[ai] !== undefined }));
+		})
+	);
+
+	/** Champions of groups you're partway through: they stay in play, with this commit's culls stacked behind them. */
+	const inPlay = $derived(
+		session.groups.flatMap((g, gi) => {
+			if (!session.isPending(gi) || !session.isCommittable(gi)) return [];
+			const asset = g.assets[session.states[gi].championIdx];
+			const stack = plan.stacks.find((ids) => ids[0] === asset.id);
+			return [{ asset, culls: stack ? stack.length - 1 : 0 }];
+		})
+	);
 
 	const culled = $derived(plan.rejectIds.map(toThumb).filter((t) => t !== null));
 	const reelClips = $derived(plan.reels.reduce((sum, r) => sum + r.assetIds.length, 0));
@@ -104,6 +110,12 @@
 		onChanged();
 	}
 
+	function toggleFavorite({ asset }: Thumb) {
+		const on = session.toggleFavorite(asset);
+		notify(`${on ? '♥' : '♡'} ${asset.originalFileName} — ${on ? 'a favorite' : 'not a favorite'}`);
+		onChanged();
+	}
+
 	const sentence = $derived.by(() => {
 		const { rejectAction, tagName, reviewedTagName } = session.settings;
 		const parts: string[] = [];
@@ -117,6 +129,9 @@
 		if (plan.albums.length > 0) parts.push(`update ${plural(plan.albums.length, 'album')}`);
 		const located = plan.locations.reduce((sum, l) => sum + l.assetIds.length, 0);
 		if (located > 0) parts.push(`set the location of ${plural(located, 'asset')}`);
+		const { on: favorites, off: unfavorites } = plan.favorites;
+		if (favorites.length > 0) parts.push(`favorite ${plural(favorites.length, 'asset')}`);
+		if (unfavorites.length > 0) parts.push(`unfavorite ${plural(unfavorites.length, 'asset')}`);
 		if (plan.reviewedIds.length > 0) {
 			parts.push(`mark all ${plural(plan.reviewedIds.length, 'processed asset')} #${reviewedTagName} so future sessions skip them`);
 		}
@@ -151,7 +166,7 @@
 	<header>
 		<span class="brand">focull<span class="dot">.</span></span>
 		<span class="label">review</span>
-		<span class="muted mono hint">tap a thumb to change its fate · ◇ takes a keeper out of its album</span>
+		<span class="muted mono hint">tap a thumb to change its fate · ◇ takes a keeper out of its album · ♥ favorites it</span>
 	</header>
 
 	<main>
@@ -183,6 +198,7 @@
 						{@const album = session.groupAlbum(thumb.gi)}
 						<span class="keeper">
 							{@render mini(thumb)}
+							<span class="fav-at"><FavoriteMark asset={thumb.asset} onclick={() => toggleFavorite(thumb)} /></span>
 							{#if album}
 								{@const filed = session.albumsOf(thumb.asset.id, thumb.gi).some((a) => sameAlbum(a, album))}
 								<button
@@ -197,6 +213,23 @@
 						</span>
 					{/each}
 				</div>
+			</section>
+		{/if}
+
+		{#if inPlay.length > 0}
+			<section>
+				<h2 class="label">still in play</h2>
+				{#each inPlay as { asset, culls } (asset.id)}
+					<div class="in-play">
+						<span class="thumb" title={asset.originalFileName}>
+							<img src={thumbnailUrl(asset.id)} alt={asset.originalFileName} loading="lazy" style={thumbhashStyle(asset)} />
+						</span>
+						<span class="mono muted">
+							champion so far{culls > 0 ? `, with ${plural(culls, 'cull')} stacked behind it` : ''} — stays in play
+							for the rest of its group
+						</span>
+					</div>
+				{/each}
 			</section>
 		{/if}
 
@@ -402,6 +435,13 @@
 		background: rgb(0 0 0 / 0.65);
 	}
 
+	.fav-at {
+		position: absolute;
+		top: 3px;
+		right: 3px;
+		font-size: 11px;
+	}
+
 	.filed.out {
 		color: var(--mut);
 		text-decoration: line-through;
@@ -413,6 +453,17 @@
 
 	.dimmed button.thumb:hover {
 		opacity: 1;
+	}
+
+	.in-play {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		font-size: 12px;
+	}
+
+	.in-play .thumb {
+		border-color: var(--amber);
 	}
 
 	.reel-row .thumb {
