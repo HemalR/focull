@@ -1,6 +1,7 @@
 import type { AssetResponseDto } from '@immich/sdk';
 import { localDate } from './format';
-import { takenAt } from './grouping';
+import { groupAssets, takenAt } from './grouping';
+import type { Settings } from './types';
 
 const DAY = 86_400_000;
 /** Within this of home counts as home: a day out near home is everyday life, not a trip. */
@@ -109,6 +110,22 @@ export function tripSpan(assets: AssetResponseDto[], anchor: AssetResponseDto, s
 		end = t;
 	}
 	return { start, end, away: false };
+}
+
+/**
+ * What a deep link to `anchor` culls of the trip around it (`onTrip`): the trip's unjudged
+ * assets, as any trip has, plus the anchor's whole scene — reviewed keepers too, since the link
+ * asks to look at that scene again. Culled ones stay out: focull never takes a cull back.
+ */
+export function linkedAssets(
+	anchor: AssetResponseDto,
+	onTrip: AssetResponseDto[],
+	{ reviewed, culled }: { reviewed: Set<string>; culled: Set<string> },
+	settings: Settings
+): AssetResponseDto[] {
+	const candidates = [anchor, ...onTrip.filter((a) => a.id !== anchor.id && !culled.has(a.id))];
+	const scene = groupAssets(candidates, settings).find((g) => g.assets.includes(anchor))?.assets ?? [];
+	return candidates.filter((a) => !reviewed.has(a.id) || scene.includes(a));
 }
 
 /** The most photographed cities, most first. */

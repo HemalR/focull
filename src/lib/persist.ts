@@ -4,6 +4,7 @@ import { DEFAULT_SETTINGS, type Settings } from './types';
 const DB = 'focull';
 const STORE = 'session';
 const KEY = 'session';
+const PARKED = 'parked';
 
 function withStore<T>(
 	mode: IDBTransactionMode,
@@ -39,6 +40,19 @@ export const loadSession = (): Promise<SessionData | undefined> =>
 
 export const clearSession = (): Promise<void> =>
 	withStore('readwrite', (s) => s.delete(KEY)).then(
+		() => undefined,
+		() => undefined
+	);
+
+/** Sessions a deep link set aside to open its own, oldest first. */
+export const loadParked = (): Promise<SessionData[]> =>
+	withStore<SessionData[] | undefined>('readonly', (s) => s.get(PARKED)).then(
+		(parked) => parked ?? [],
+		() => []
+	);
+
+export const saveParked = (parked: SessionData[]): Promise<void> =>
+	withStore('readwrite', (s) => s.put(parked, PARKED)).then(
 		() => undefined,
 		() => undefined
 	);

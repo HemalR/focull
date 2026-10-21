@@ -4,15 +4,17 @@ import {
 	AssetVisibility,
 	getAllTags,
 	getAssetDuplicates,
+	getAssetInfo,
 	getServerVersion,
+	isHttpError,
 	searchAssets,
 	searchRandom,
 	type AssetResponseDto,
 	type MetadataSearchDto
 } from '@immich/sdk';
 import { takenAt } from './grouping';
-import { topCities, tripSpan } from './trips';
-import type { CullGroup, MediaFilter, SessionSource, Settings } from './types';
+import { linkedAssets, topCities, tripSpan } from './trips';
+import { MEDIA_LABELS, type CullGroup, type MediaFilter, type SessionSource, type Settings } from './types';
 
 /** The one asset type a media filter keeps; undefined keeps both. */
 const typeFor = (media: MediaFilter): AssetTypeEnum | undefined =>
@@ -86,14 +88,14 @@ async function searchPaged(
 
 /**
  * IDs of every asset carrying one of the given tag paths. Immich search can filter
- * FOR a tag but not against one, so exclusion means collecting these up front.
+ * FOR a tag but not against one, so exclusion means collecting these up front. Its
+ * search wants every tag it's given, so each tag gets a search of its own.
  */
 async function fetchTaggedAssetIds(tagPaths: string[]): Promise<Set<string>> {
 	const tags = await getAllTags();
 	const tagIds = tags.filter((t) => tagPaths.includes(t.value)).map((t) => t.id);
-	if (tagIds.length === 0) return new Set();
-	const tagged = await searchPaged({ tagIds, size: 1000, withExif: false });
-	return new Set(tagged.map((a) => a.id));
+	const tagged = await Promise.all(tagIds.map((id) => searchPaged({ tagIds: [id], size: 1000, withExif: false })));
+	return new Set(tagged.flat().map((a) => a.id));
 }
 
 /** Pull every asset matching the session source, then drop trashed / stacked / already-judged ones. */
@@ -125,7 +127,7 @@ const TRIP_SEARCH_MS = 45 * 86_400_000;
 
 export interface Trip {
 	source: Extract<SessionSource, { kind: 'trip' }>;
-	/** The trip's unjudged assets, ready to group. */
+	/** The trip's assets to cull, ready to group. */
 	assets: AssetResponseDto[];
 }
 
@@ -150,10 +152,55 @@ export async function pickTrip(settings: Settings): Promise<Trip | null> {
 	]);
 	const anchor = sample.find((a) => !a.isTrashed && !a.stack && !judged.has(a.id));
 	if (!anchor) return null;
+	const trip = await tripAround(anchor, settings);
+	return { ...trip, assets: trip.assets.filter((a) => !judged.has(a.id)) };
+}
+
+/** An Immich asset id — all a deep link carries. */
+const ASSET_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The trip a deep link (`/?around=<id>`) opens: the one around asset `id`, as pickTrip finds one
+ * around a random photo, culling what linkedAssets picks. Throws a message fit to show when the
+ * asset can't anchor a trip.
+ */
+export async function linkedTrip(id: string, settings: Settings): Promise<Trip> {
+	if (!ASSET_ID.test(id)) throw new Error("that link doesn't point to an Immich photo");
+	const [anchor, reviewed, culled] = await Promise.all([
+		getAssetInfo({ id }).catch((e: unknown) => {
+			// Immich answers 400 for an asset that's gone or was never yours.
+			throw isHttpError(e) && [400, 403, 404].includes(e.status)
+				? new Error('Immich has no such photo — it may have been deleted')
+				: e;
+		}),
+		fetchTaggedAssetIds([settings.reviewedTagName]),
+		fetchTaggedAssetIds([settings.tagName])
+	]);
+	const problem = linkProblem(anchor, culled, settings);
+	if (problem) throw new Error(problem);
+	const trip = await tripAround(anchor, settings);
+	return { ...trip, assets: linkedAssets(anchor, trip.assets, { reviewed, culled }, settings) };
+}
+
+/** Why a deep link can't open a trip around `anchor`, or null when it can. */
+function linkProblem(anchor: AssetResponseDto, culled: Set<string>, settings: Settings): string | null {
+	const wanted = typeFor(settings.media);
+	if (anchor.isTrashed) return "that photo is in Immich's trash";
+	if (culled.has(anchor.id))
+		return `that photo is already culled — untag it (${settings.tagName}) in Immich to judge it again`;
+	if (anchor.visibility !== AssetVisibility.Timeline) return "that photo isn't on your Immich timeline";
+	if (anchor.type !== AssetTypeEnum.Image && anchor.type !== AssetTypeEnum.Video) return "that isn't a photo or a video";
+	if (wanted && anchor.type !== wanted)
+		return `focull is set to ${MEDIA_LABELS[settings.media]} — change that in the picker`;
+	return null;
+}
+
+/** The trip around `anchor` (see tripSpan), with every asset on it that can be culled — judged ones too. */
+async function tripAround(anchor: AssetResponseDto, settings: Settings): Promise<Trip> {
 	const t = takenAt(anchor);
 	// Judged photos still say where you were, so they count towards finding the trip.
 	const around = await searchPaged({
-		type,
+		type: typeFor(settings.media),
 		withExif: true,
 		visibility: AssetVisibility.Timeline,
 		withStacked: false,
@@ -172,7 +219,7 @@ export async function pickTrip(settings: Settings): Promise<Trip | null> {
 			takenBefore: new Date(end).toISOString(),
 			places: topCities(onTrip)
 		},
-		assets: onTrip.filter((a) => !a.isTrashed && !a.stack && !judged.has(a.id))
+		assets: onTrip.filter((a) => !a.isTrashed && !a.stack)
 	};
 }
 

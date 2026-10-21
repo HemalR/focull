@@ -108,3 +108,20 @@ it('favorites only the survivors, and unfavorites culled photos too', () => {
 	session.defend(); // b and c culled
 	expect(buildPlan(session.groups, session.states, session.intent()).favorites).toEqual({ on: ['a'], off: ['c'] });
 });
+
+it('lands a link on its photo as the first challenger, then culls on round to the start', () => {
+	session.start([group('a', 'b'), group('c', 'd', 'e'), group('f')], { kind: 'unreviewed' }, DEFAULT_SETTINGS);
+	session.focus('c'); // first of its scene, so the next shot defends against it
+	expect(session.gi).toBe(1);
+	expect(session.current).toMatchObject({ championIdx: 1, queue: [0, 2] });
+	expect(session.hasDecisions).toBe(false); // landing isn't progress: leaving asks nothing
+
+	session.defend();
+	session.defend();
+	session.gotoNextPending();
+	session.decideSingle(true);
+	expect(session.gotoNextPending()).toBe(true);
+	expect(session.gi).toBe(0); // round to the groups before the link's
+	session.defend();
+	expect(session.gotoNextPending()).toBe(false);
+});

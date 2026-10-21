@@ -1,7 +1,8 @@
-import type { AssetResponseDto } from '@immich/sdk';
+import { AssetTypeEnum, type AssetResponseDto } from '@immich/sdk';
 import { describe, expect, it } from 'vitest';
 import { takenAt } from './grouping';
-import { tripSpan } from './trips';
+import { linkedAssets, tripSpan } from './trips';
+import { DEFAULT_SETTINGS } from './types';
 
 const DAY = 86_400_000;
 const T0 = Date.parse('2018-06-01T12:00:00Z');
@@ -47,5 +48,19 @@ describe('tripSpan', () => {
 	it('falls back to a few days from the anchor when nothing has GPS', () => {
 		const all = days(0, 10, null, 0.5);
 		expect(span(all, all[4])).toEqual({ start: 2, end: 5, away: false });
+	});
+});
+
+describe('linkedAssets', () => {
+	/** A photo `minutes` after T0. */
+	const photo = (id: string, minutes: number) =>
+		({ id, type: AssetTypeEnum.Image, fileCreatedAt: new Date(T0 + minutes * 60_000).toISOString() }) as AssetResponseDto;
+	// A burst around the anchor, then another scene an hour later.
+	const anchor = photo('anchor', 3);
+	const trip = [photo('a', 0), photo('b', 1), photo('c', 2), anchor, photo('d', 60), photo('e', 61)];
+
+	it("brings the anchor's scene back whole, but not culled photos or the trip's other reviewed ones", () => {
+		const judged = { reviewed: new Set(['anchor', 'a', 'b', 'd']), culled: new Set(['b']) };
+		expect(linkedAssets(anchor, trip, judged, DEFAULT_SETTINGS).map((a) => a.id)).toEqual(['anchor', 'a', 'c', 'e']);
 	});
 });

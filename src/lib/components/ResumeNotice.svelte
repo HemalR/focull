@@ -1,14 +1,25 @@
 <script lang="ts">
 	import { calendarDate, plural, timeAgo } from '$lib/format';
-	import { session } from '$lib/session.svelte';
+	import { decisionCount, type SessionData } from '$lib/session.svelte';
 	import { tripLabel } from '$lib/trips';
-	import { MEDIA_LABELS } from '$lib/types';
+	import { MEDIA_LABELS, type SessionSource } from '$lib/types';
+
+	/** What each notice says happened to the session it describes, and the way out it offers. */
+	const ACTIONS = { resumed: 'new trip instead', 'set aside': 'back to it' } as const;
+
+	interface Props {
+		/** `resumed`: the app reopened the saved session. `set aside`: a deep link opened in its place. */
+		kind: keyof typeof ACTIONS;
+		session: Pick<SessionData, 'groups' | 'states' | 'gi' | 'startedAt' | 'settings'> & { source: SessionSource | null };
+		onAction: () => void;
+		onDismiss: () => void;
+	}
 
 	/**
-	 * Says which saved session the app reopened, until the user does anything at all: any key,
-	 * or a press anywhere outside the notice. Its own button starts a fresh trip instead.
+	 * Says which saved session the app reopened, or set aside for a deep link, until the user does
+	 * anything at all: any key, or a press anywhere outside the notice. Its button offers the way out.
 	 */
-	let { onNew, onDismiss }: { onNew: () => void; onDismiss: () => void } = $props();
+	let { kind, session, onAction, onDismiss }: Props = $props();
 
 	let box: HTMLElement;
 
@@ -40,15 +51,15 @@
 
 <aside class="resume mono" role="status" bind:this={box}>
 	<span>
-		<span class="icon">↺</span> resumed {what}{session.settings.media === 'both'
+		<span class="icon">↺</span> {kind} {what}{session.settings.media === 'both'
 			? ''
 			: ` · ${MEDIA_LABELS[session.settings.media]}`}
 	</span>
 	<span class="muted">
-		group {session.gi + 1} of {session.groups.length} · {plural(session.decisionCount, 'decision')} · started
+		group {session.gi + 1} of {session.groups.length} · {plural(decisionCount(session), 'decision')} · started
 		{timeAgo(session.startedAt)}
 	</span>
-	<button type="button" onclick={onNew}>new trip instead</button>
+	<button type="button" onclick={onAction}>{ACTIONS[kind]}</button>
 </aside>
 
 <style>

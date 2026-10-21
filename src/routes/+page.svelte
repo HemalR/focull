@@ -2,12 +2,16 @@
 	import { onMount } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';
 	import { createHotkey } from '@tanstack/svelte-hotkeys';
+	import { replaceState } from '$app/navigation';
+	import { resolve } from '$app/paths';
+	import { page } from '$app/state';
 	import {
 		checkStitch,
 		fetchDuplicateGroups,
 		fetchSessionAssets,
 		getAuthStatus,
 		getServerInfo,
+		linkedTrip,
 		pickTrip,
 		type AuthUser,
 		type ServerInfo
@@ -17,8 +21,8 @@
 	import { groupAssets, takenAt } from '$lib/grouping';
 	import { tripLabel } from '$lib/trips';
 	import { setupImmich } from '$lib/immich';
-	import { clearSession, loadSession, loadSettings, saveSession } from '$lib/persist';
-	import { session, type SessionData, type Tally } from '$lib/session.svelte';
+	import { clearSession, loadParked, loadSession, loadSettings, saveParked, saveSession } from '$lib/persist';
+	import { hasDecisions, session, type SessionData, type Tally } from '$lib/session.svelte';
 	import { MEDIA_LABELS, type SessionSource } from '$lib/types';
 	import { plural } from '$lib/format';
 	import Battle from '$lib/components/Battle.svelte';
@@ -79,6 +83,15 @@
 	/** The session was reopened from device storage — show ResumeNotice until the user does anything. */
 	let resumed = $state(false);
 
+	/** Deep link: `/?around=<assetId>` opens the trip around that asset, at its scene. Read once, kept through login. */
+	let link = page.url.searchParams.get('around');
+	let linkError = $state('');
+	/** Sessions a deep link set aside to open its own, the latest last; they come back when it's over. */
+	let parked = $state.raw<SessionData[]>([]);
+	const lastParked = $derived(parked.at(-1));
+	/** A deep link just set a session aside — say so, as ResumeNotice does for a resume. */
+	let setAside = $state(false);
+
 	let fetchCount = $state(0);
 	let fetchSummary = $state<{ assets: number; groups: number; trip?: string } | null>(null);
 	let fetchEmpty = $state(false);
@@ -127,11 +140,50 @@
 		}
 	}
 
-	/** Reopen the saved session; otherwise drop straight into a random trip. */
+	/** Open a deep link; else reopen the saved session, or one set aside; otherwise drop straight into a random trip. */
 	async function afterLogin() {
-		const saved = await loadSession();
-		if (saved) resume(saved);
-		else await startTrip();
+		const [saved, aside] = await Promise.all([loadSession(), loadParked()]);
+		parked = aside;
+		if (link) await openLink(link, saved);
+		else if (saved) resume(saved);
+		else if (!backToParked()) await startTrip();
+	}
+
+	/** The trip around a deep-linked asset, landing on its scene. A saved session with decisions is set aside. */
+	async function openLink(id: string, saved: SessionData | undefined) {
+		link = null;
+		// Off the URL, so a reload resumes the linked session instead of opening it afresh.
+		replaceState(resolve('/'), {});
+		resetFetch('trip');
+		try {
+			const trip = await linkedTrip(id, session.settings);
+			if (saved && hasDecisions(saved)) {
+				parked = [...parked, saved];
+				void saveParked(parked);
+				setAside = true;
+			}
+			await startSession(trip.source, trip.assets);
+			session.focus(id);
+		} catch (e) {
+			linkError = e instanceof Error ? e.message : 'could not open that photo';
+		}
+	}
+
+	/** After a link fails, carry on as if it hadn't been followed. */
+	function skipLink() {
+		linkError = '';
+		void afterLogin();
+	}
+
+	/** Reopen the latest session a deep link set aside. Returns false when there's none. */
+	function backToParked(): boolean {
+		const data = parked.at(-1);
+		if (!data) return false;
+		parked = parked.slice(0, -1);
+		void saveParked(parked);
+		setAside = false;
+		resume(data);
+		return true;
 	}
 
 	// Persist after every battle mutation so a crashed tab can resume.
@@ -326,7 +378,8 @@
 			keepCulling();
 			return;
 		}
-		if (abandon()) phase = 'picker';
+		// Leaving a linked session goes back to the one it set aside.
+		if (abandon() && !backToParked()) phase = 'picker';
 	}
 
 	/** Drop the current session, confirming first if it holds decisions. Returns whether it was dropped. */
@@ -361,14 +414,14 @@
 	onKey(
 		'confirm',
 		() => {
-			if (phase === 'fetching') newSession();
+			if (phase === 'fetching') (linkError ? skipLink : newSession)();
 			else if (phase === 'committing') void commit();
-			else if (phase === 'done') (doneRemaining > 0 ? keepCulling : newTrip)();
+			else if (phase === 'done') (doneRemaining > 0 ? keepCulling : lastParked ? backToParked : newTrip)();
 		},
 		() => ({
 			enabled:
 				phase === 'done' ||
-				(phase === 'fetching' && fetchEmpty) ||
+				(phase === 'fetching' && (fetchEmpty || linkError !== '')) ||
 				(phase === 'committing' && commitFailed)
 		})
 	);
@@ -438,7 +491,12 @@
 	<div class="center-screen">
 		<div class="mini">
 			<span class="brand">focull<span class="dot">.</span></span>
-			{#if fetchEmpty}
+			{#if linkError}
+				<p class="err mono">couldn't open that link: {linkError}</p>
+				<button type="button" class="btn" onclick={skipLink} {@attach rebindable('confirm')}>
+					carry on <Key action="confirm" />
+				</button>
+			{:else if fetchEmpty}
 				<p class="mono">
 					{(fetchKind && emptyMessages[fetchKind]) ?? 'No assets match — nothing to cull. Nice and tidy.'}
 				</p>
@@ -478,7 +536,7 @@
 	/>
 	{#if phase === 'group-done'}
 		<GroupDone
-			last={!session.states.some((_, i) => i > session.gi && session.isPending(i))}
+			last={session.pendingCount === 0}
 			{notify}
 			onNext={advance}
 			onReopen={() => (phase = 'battle')}
@@ -551,6 +609,11 @@
 						keep culling — {plural(doneRemaining, 'group')} left <Key action="confirm" />
 					</button>
 					<button type="button" class="ghost mono" onclick={newTrip}>another trip</button>
+				{:else if lastParked}
+					<button type="button" class="btn" onclick={backToParked} {@attach rebindable('confirm')}>
+						back to where you were <Key action="confirm" />
+					</button>
+					<button type="button" class="ghost mono" onclick={newTrip}>another trip</button>
 				{:else}
 					<button type="button" class="btn" onclick={newTrip} {@attach rebindable('confirm')}>
 						another trip <Key action="confirm" />
@@ -566,12 +629,21 @@
 
 {#if resumed}
 	<ResumeNotice
-		onNew={() => {
+		kind="resumed"
+		{session}
+		onAction={() => {
 			if (!abandon()) return;
 			resumed = false;
 			void startTrip();
 		}}
 		onDismiss={() => (resumed = false)}
+	/>
+{:else if setAside && lastParked}
+	<ResumeNotice
+		kind="set aside"
+		session={lastParked}
+		onAction={() => abandon() && backToParked()}
+		onDismiss={() => (setAside = false)}
 	/>
 {/if}
 

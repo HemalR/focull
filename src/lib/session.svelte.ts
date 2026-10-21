@@ -44,6 +44,14 @@ export interface SessionData {
 	favorites: Record<string, boolean>;
 }
 
+/** Fates assigned across a session (for the stats line and notices). */
+export const decisionCount = ({ states }: Pick<SessionData, 'states'>): number =>
+	states.reduce((sum, s) => sum + Object.keys(s.fates).length, 0);
+
+/** Whether a session holds anything to lose: a call made, or a group skipped. */
+export const hasDecisions = ({ states, skipped = [] }: Pick<SessionData, 'states' | 'skipped'>): boolean =>
+	skipped.length > 0 || decisionCount({ states }) > 0;
+
 export interface Tally {
 	kept: number;
 	culled: number;
@@ -105,12 +113,11 @@ class CullSession {
 	}
 
 	get hasDecisions(): boolean {
-		return this.gi > 0 || this.states.some((s) => Object.keys(s.fates).length > 0);
+		return hasDecisions(this);
 	}
 
-	/** Total fates assigned across the whole session (for the stats line). */
 	get decisionCount(): number {
-		return this.states.reduce((sum, s) => sum + Object.keys(s.fates).length, 0);
+		return decisionCount(this);
 	}
 
 	/** Fully judged and not skipped. */
@@ -317,12 +324,14 @@ class CullSession {
 	}
 
 	/**
-	 * Move to the next group that still needs judging (skipped ones excluded).
+	 * Move to the next group that still needs judging (skipped ones excluded), wrapping round to
+	 * the start for a session opened partway through (a deep link lands on its photo's scene).
 	 * Deliberately not snapshotted — undo steps back into decisions, not navigation.
 	 * Returns false when none remain, i.e. it's review time.
 	 */
 	gotoNextPending(): boolean {
-		for (let i = this.gi + 1; i < this.groups.length; i++) {
+		for (let step = 1; step < this.groups.length; step++) {
+			const i = (this.gi + step) % this.groups.length;
 			if (this.isPending(i)) {
 				this.gi = i;
 				this.rev++;
@@ -330,6 +339,24 @@ class CullSession {
 			}
 		}
 		return false;
+	}
+
+	/**
+	 * Land a freshly started session on the group holding `assetId`, with it as the first challenger
+	 * (the card on a phone) against the first of the rest. Navigation like gotoNextPending, so not undoable.
+	 */
+	focus(assetId: string): void {
+		const gi = this.groups.findIndex((g) => g.assets.some((a) => a.id === assetId));
+		const s = this.states[gi];
+		if (!s) return;
+		const ai = this.groups[gi].assets.findIndex((a) => a.id === assetId);
+		const [champion, ...rest] = [s.championIdx, ...s.queue].filter((i) => i !== ai);
+		if (champion !== undefined) {
+			s.championIdx = champion;
+			s.queue = [ai, ...rest];
+		}
+		this.gi = gi;
+		this.rev++;
 	}
 
 	/**
